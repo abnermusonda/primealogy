@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The prime family tree</title>
+<meta name="description" content="An interactive picture of the primes as one family tree: every prime hangs from the largest prime factor of the number just below it, so all primes grow from 2.">
+<meta property="og:title" content="The prime family tree">
+<meta property="og:description" content="Every prime hangs from the largest prime factor of p − 1. Follow the rule and all the primes grow from 2.">
+<meta name="theme-color" content="#0a1424">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500&family=Playfair+Display:wght@500&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main class="wrap">
+  <header class="head">
+    <h1>The prime family tree</h1>
+    <p class="lede">Every prime hangs from the largest prime factor of the number just below it. Follow that one rule and all the primes grow from 2.</p>
+  </header>
+
+  <section class="app" aria-label="Interactive prime family tree">
+    <div class="stage-col">
+      <div id="stage" class="stage">
+        <canvas id="tree" role="img" aria-label="Radial tree of the primes. The prime 2 sits at the center and every other prime is joined to the largest prime factor of the number one less than itself. Distance from the center grows with the size of the prime on a log scale, and color shows how many steps separate it from 2.">Primes drawn as a tree rooted at 2. The longest line of descent below 8,192 is 2, 5, 11, 89, 179, 359, 719, 1439, 2879.</canvas>
+        <div class="zoom" role="group" aria-label="Zoom">
+          <button id="zin" type="button" aria-label="Zoom in">+</button>
+          <button id="zout" type="button" aria-label="Zoom out">&minus;</button>
+          <button id="zreset" type="button" aria-label="Reset view">&#8634;</button>
+        </div>
+      </div>
+      <div class="transport">
+        <button id="play" class="play" type="button" aria-label="Pause"><span id="playIcon" class="icon-pause" aria-hidden="true"></span></button>
+        <input id="grow" type="range" min="0" max="1000" step="1" value="0" aria-label="How far along the primes the tree has grown">
+        <div class="readout"><div id="upto" class="strong"></div><div id="count" class="dim"></div></div>
+      </div>
+    </div>
+
+    <aside class="side">
+      <div class="card">
+        <div class="label">Line of descent</div>
+        <div id="chain" class="chain"></div>
+        <div id="detail" class="detail"></div>
+      </div>
+
+      <form id="find" class="card find" novalidate>
+        <label class="label" for="q">Find a prime</label>
+        <div class="row">
+          <input id="q" name="q" type="text" inputmode="numeric" autocomplete="off" placeholder="2879">
+          <button type="submit">Show</button>
+        </div>
+        <div id="qerr" class="err" role="alert"></div>
+      </form>
+
+      <div class="card">
+        <label class="label" for="range">Primes up to</label>
+        <select id="range">
+          <option value="10">1,024</option>
+          <option value="12">4,096</option>
+          <option value="13" selected>8,192</option>
+          <option value="14">16,384</option>
+          <option value="16">65,536</option>
+        </select>
+        <div id="stats" class="dim small"></div>
+      </div>
+
+      <div class="card">
+        <div class="label">Generations from 2</div>
+        <div id="legend" class="legend"></div>
+        <div class="dim small">Each ring doubles. Drag to pan, pinch or scroll to zoom, tap a dot to trace it.</div>
+      </div>
+
+      <button id="theme" class="ghost" type="button" aria-label="Switch color theme">Switch to light</button>
+    </aside>
+  </section>
+
+  <section class="notes">
+    <h2>How to read it</h2>
+    <ul>
+      <li><strong>The rule.</strong> A prime p is joined to the largest prime that divides p − 1. So 47 hangs from 23, because 46 = 2 × 23; 23 hangs from 11; 11 from 5; 5 from 2.</li>
+      <li><strong>Distance.</strong> How far a dot sits from the center is log₂ of the prime, so each ring is a doubling.</li>
+      <li><strong>Color.</strong> How many steps the prime is from 2. The deepest lines end in chains where each prime is double the last, plus one.</li>
+      <li><strong>Spokes from 2.</strong> Only Fermat primes (3, 5, 17, 257, 65537) hang straight from 2, because their p − 1 is a power of 2.</li>
+    </ul>
+  </section>
+</main>
+<noscript><p class="wrap">This page needs JavaScript to draw the tree.</p></noscript>
+<script src="app.js"></script>
+</body>
+</html>
