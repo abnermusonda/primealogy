@@ -1,5 +1,5 @@
 /*
- * The prime family tree
+ * Primealogy: The prime family tree
  * Every prime p > 2 is drawn as a child of the largest prime factor of p - 1.
  * The result is a single tree rooted at 2, laid out radially in 3D:
  *   radius = log2(p), angle = a wedge proportional to the number of leaves below,

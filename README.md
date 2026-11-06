@@ -1,4 +1,4 @@
-# The prime family tree
+# Primealogy: The prime family tree
 
 An interactive picture of the primes as one family tree. Every prime p > 2 hangs from the
 largest prime factor of p − 1, so every prime traces back to 2. Plain HTML, CSS and
@@ -15,26 +15,26 @@ JavaScript: no build step, no libraries, no server code.
 | `tools/build-prime-reference.mjs` | Regenerates that table; not needed on the site |
 | `styles.css` | Dark navy and gold theme, with a light theme |
 | `favicon.svg` | Tab icon |
-| `react/PrimeFamilyTree.jsx` | Optional React wrapper that embeds the page in an iframe |
+| `react/Primealogy.jsx` | Optional React wrapper that embeds the page in an iframe |
 
 ## Deploy on a Vite + React site (Azure Static Web Apps)
 
-1. Copy the whole `prime-family-tree` folder into your project's `public/` folder, so you have
-   `public/prime-family-tree/index.html`.
+1. Copy the whole `primealogy` folder into your project's `public/` folder, so you have
+   `public/primealogy/index.html`.
 2. Build and push as usual. Vite copies `public/` into `dist/` untouched, and the page goes live at
-   `https://<your-domain>/prime-family-tree/`.
+   `https://<your-domain>/primealogy/`.
 3. If `staticwebapp.config.json` has a `navigationFallback` that rewrites to `/index.html`, add the folder
    to its `exclude` list so Azure serves the files directly:
 
    ```json
    "navigationFallback": {
      "rewrite": "/index.html",
-     "exclude": ["/prime-family-tree/*", "/assets/*"]
+     "exclude": ["/primealogy/*", "/assets/*"]
    }
    ```
 
 4. Link to it from your navigation or a blog post. You can also embed it inside a React page with
-   `react/PrimeFamilyTree.jsx`: copy it into `src/components/` and render `<PrimeFamilyTree />`.
+   `react/Primealogy.jsx`: copy it into `src/components/` and render `<Primealogy />`.
 
 ## Deploy anywhere else
 
