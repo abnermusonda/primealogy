@@ -24,7 +24,7 @@
   <section class="app" aria-label="Interactive prime family tree">
     <div class="stage-col">
       <div id="stage" class="stage">
-        <canvas id="tree" role="img" aria-label="Radial tree of the primes. The prime 2 sits at the center and every other prime is joined to the largest prime factor of the number one less than itself. Distance from the center grows with the size of the prime on a log scale, and color shows how many steps separate it from 2.">Primes drawn as a tree rooted at 2. The longest line of descent below 8,192 is 2, 5, 11, 89, 179, 359, 719, 1439, 2879.</canvas>
+        <canvas id="tree" role="img" aria-label="Three-dimensional radial tree of the primes, with one layer for each generation. The prime 2 sits at the center of the lowest layer and every other prime is joined to the largest prime factor of the number one less than itself. Distance from the center grows with the size of the prime on a log scale, and color shows how many steps separate it from 2.">Primes drawn as a tree rooted at 2. The longest line of descent below 8,192 is 2, 5, 11, 89, 179, 359, 719, 1439, 2879.</canvas>
         <div class="zoom" role="group" aria-label="Zoom">
           <button id="zin" type="button" aria-label="Zoom in">+</button>
           <button id="zout" type="button" aria-label="Zoom out">&minus;</button>
@@ -40,7 +40,7 @@
 
     <aside class="side">
       <div class="card">
-        <div class="label">Line of descent</div>
+        <div id="chainLabel" class="label">Line of descent</div>
         <div id="chain" class="chain"></div>
         <div id="detail" class="detail"></div>
       </div>
@@ -54,22 +54,28 @@
         <div id="qerr" class="err" role="alert"></div>
       </form>
 
-      <div class="card">
-        <label class="label" for="range">Primes up to</label>
-        <select id="range">
-          <option value="10">1,024</option>
-          <option value="12">4,096</option>
-          <option value="13" selected>8,192</option>
-          <option value="14">16,384</option>
-          <option value="16">65,536</option>
-        </select>
+      <form id="boundForm" class="card find" novalidate>
+        <label class="label" for="bound">Primes up to</label>
+        <div class="row">
+          <input id="bound" type="text" inputmode="numeric" autocomplete="off">
+          <button type="submit">Go</button>
+        </div>
+        <div id="bounderr" class="err" role="alert"></div>
         <div id="stats" class="dim small"></div>
-      </div>
+        <progress id="runBar" max="1" value="0" hidden></progress>
+        <div id="runStatus" class="dim small run"></div>
+        <button id="stop" class="ghost" type="button" hidden>Stop</button>
+      </form>
+
+      <label class="card check">
+        <input id="rootToggle" type="checkbox">
+        <span>Only primes hanging directly from 2</span>
+      </label>
 
       <div class="card">
         <div class="label">Generations from 2</div>
         <div id="legend" class="legend"></div>
-        <div class="dim small">Each ring doubles. Drag to pan, pinch or scroll to zoom, tap a dot to trace it.</div>
+        <div class="dim small">Drag to rotate, pinch or scroll to zoom, shift-drag to pan, tap a dot to trace it.</div>
       </div>
 
       <button id="theme" class="ghost" type="button" aria-label="Switch color theme">Switch to light</button>
@@ -81,6 +87,7 @@
     <ul>
       <li><strong>The rule.</strong> A prime p is joined to the largest prime that divides p − 1. So 47 hangs from 23, because 46 = 2 × 23; 23 hangs from 11; 11 from 5; 5 from 2.</li>
       <li><strong>Distance.</strong> How far a dot sits from the center is log₂ of the prime, so each ring is a doubling.</li>
+      <li><strong>Height.</strong> Each generation is its own layer, so a prime sits one level above its parent.</li>
       <li><strong>Color.</strong> How many steps the prime is from 2. The deepest lines end in chains where each prime is double the last, plus one.</li>
       <li><strong>Spokes from 2.</strong> Only Fermat primes (3, 5, 17, 257, 65537) hang straight from 2, because their p − 1 is a power of 2.</li>
     </ul>

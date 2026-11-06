@@ -1,9 +1,9 @@
 /*
  * The prime family tree
  * Every prime p > 2 is drawn as a child of the largest prime factor of p - 1.
- * The result is a single tree rooted at 2, laid out radially:
+ * The result is a single tree rooted at 2, laid out radially in 3D:
  *   radius = log2(p), angle = a wedge proportional to the number of leaves below,
- *   color = generation (steps back to 2).
+ *   height and color = generation (steps back to 2), so each generation is a layer.
  * No dependencies. Works as a standalone page or inside an iframe (?embed=1).
  */
 (function () {
@@ -14,8 +14,15 @@
   var A0 = -Math.PI / 2 + GAP / 2;
   var A1 = 1.5 * Math.PI - GAP / 2;
   var GROW_SECONDS = 15;                /* one full growth animation */
-  var MAX_N_EXP = 16;
-  var RANGES = [10, 12, 13, 14, 16];
+  var TREE_HEIGHT = 0.6;                /* stack of generation layers, as a share of the canvas width */
+  var START_TILT = 1.0, START_SPIN = 0;  /* radians; a tilt of 0 looks straight down the stack */
+  var DRAG_SPEED = 0.008;               /* radians per pixel */
+  var DIM = 0.22;                       /* opacity of primes outside a root=p filter */
+  var TREE_MAX = 1 << 20;               /* largest tree worth drawing; above this, workers count instead */
+  var ANIMATE_MAX = 1 << 16;            /* bigger trees appear finished rather than growing */
+  var MAX_BOUND = BigInt('1223334444555554444333221');
+  var SAFE_MAX = Number.MAX_SAFE_INTEGER;   /* the workers' sieve stops here */
+  var SEGMENT = 1 << 22;                /* numbers per worker job */
   var RAMPS = {
     dark:  ['#F2D28A', '#EF9F27', '#ED93B1', '#AFA9EC', '#85B7EB', '#5DCAA5', '#9FE1CB', '#E1F5EE', '#FFFFFF'],
     light: ['#BA7517', '#EF9F27', '#D4537E', '#7F77DD', '#378ADD', '#1D9E75', '#0F6E56', '#04342C', '#000000']
@@ -23,11 +30,11 @@
 
   var $ = function (id) { return document.getElementById(id); };
   var stage = $('stage'), cv = $('tree'), ctx = cv.getContext('2d');
-  var off = document.createElement('canvas'), octx = off.getContext('2d');
   var ui = {
     play: $('play'), playIcon: $('playIcon'), grow: $('grow'), upto: $('upto'), count: $('count'),
-    chain: $('chain'), detail: $('detail'), find: $('find'), q: $('q'), qerr: $('qerr'),
-    range: $('range'), stats: $('stats'), legend: $('legend'), theme: $('theme'),
+    chainLabel: $('chainLabel'), chain: $('chain'), detail: $('detail'), find: $('find'), q: $('q'), qerr: $('qerr'),
+    rootToggle: $('rootToggle'), boundForm: $('boundForm'), bound: $('bound'), bounderr: $('bounderr'),
+    runBar: $('runBar'), runStatus: $('runStatus'), stop: $('stop'), stats: $('stats'), legend: $('legend'), theme: $('theme'),
     zin: $('zin'), zout: $('zout'), zreset: $('zreset')
   };
 
@@ -48,8 +55,8 @@
     return true;
   }
 
-  function build(exp) {
-    var N = 1 << exp;
+  function build(N) {
+    var exp = Math.max(2, Math.log2(N));
     var spf = new Uint32Array(N + 1);           /* smallest prime factor sieve */
     var i, j;
     for (i = 2; i <= N; i++) {
@@ -62,13 +69,15 @@
     for (i = 0; i < n; i++) idx[P[i]] = i;
 
     var gpf = function (v) { var g = 1; while (v > 1) { var q = spf[v]; if (q > g) g = q; v /= q; } return g; };
-    var par = new Int32Array(n).fill(-1), gen = new Uint8Array(n), kids = [];
+    var par = new Int32Array(n).fill(-1), gen = new Uint8Array(n), kids = [], byGen = [[0]];
     var lg = new Float64Array(n), wt = new Float64Array(n), ang = new Float64Array(n);
     for (i = 0; i < n; i++) kids.push([]);
     lg[0] = 1;
     for (i = 1; i < n; i++) {
       j = idx[gpf(P[i] - 1)];
       par[i] = j; gen[i] = gen[j] + 1; kids[j].push(i); lg[i] = Math.log2(P[i]);
+      if (!byGen[gen[i]]) byGen[gen[i]] = [];
+      byGen[gen[i]].push(i);
     }
     for (i = n - 1; i >= 0; i--) { if (!kids[i].length) wt[i] = 1; if (i) wt[par[i]] += wt[i]; }
     (function place(k, a0, a1) {
@@ -85,20 +94,27 @@
       while (v > 1) { var q = spf[v], e = 0; while (v % q === 0) { v /= q; e++; } out.push([q, e]); }
       return out;
     };
-    return { exp: exp, N: N, P: P, n: n, idx: idx, par: par, gen: gen, kids: kids, lg: lg, ang: ang,
+    return { exp: exp, N: N, P: P, n: n, idx: idx, par: par, gen: gen, kids: kids, byGen: byGen, lg: lg, ang: ang,
              deep: deep, maxGen: gen[deep], leaves: leaves, factor: factor };
   }
 
   /* ---------- state ---------- */
 
   var T = null;                                  /* the current tree */
-  var X, Y, cnt;                                 /* world positions, live child counts */
-  var W = 0, dpr = 1, cx = 0, cy = 0, unit = 0;
+  var WX, WY, WZ, cnt;                          /* world positions, live child counts */
+  var SX, SY, SP;                               /* screen position and perspective scale, per frame */
+  var E, stride = 0, edgeSegs = 0;              /* each edge as a polyline of world points */
+  var W = 0, dpr = 1, cx = 0, cy = 0, unit = 0, layerGap = 0, persp = 1, fit = 1;
+  var spin = START_SPIN, tilt = START_TILT;      /* rotation about the stack, and of the stack */
+  var cosS = 1, sinS = 0, cosT = 1, sinT = 0, outX = 0, outY = 0, outP = 1;
   var s = 1, tx = 0, ty = 0;                     /* view: screen = world * s + t */
   var L = 1;                                     /* growth front, in log2 units */
   var playing = false, lastTs = 0, sel = -1, shown = 0, shownAt = 0;
-  var needBake = true, frameReq = 0;
-  var theme = 'dark', col = RAMPS.dark, ink = '#eef1f6', muted = '#7d8aa1', line = 'rgba(255,255,255,.09)', line2 = 'rgba(255,255,255,.16)';
+  var bound = BigInt(8192);                      /* the visitor's upper limit; T stops at TREE_MAX */
+  var near = null;                               /* { v, lo, hi }: a non-prime search and the primes either side */
+  var rootP = 0, rootKids = null, marked = null; /* root=p filter: its children, and a per-prime "stay bright" flag */
+  var frameReq = 0;
+  var theme = 'dark', col = RAMPS.dark, ink = '#eef1f6', paper = '#0a1424', muted = '#7d8aa1', line = 'rgba(255,255,255,.09)', line2 = 'rgba(255,255,255,.16)';
   var font = 'Outfit, system-ui, sans-serif';
 
   /* ---------- theme ---------- */
@@ -111,21 +127,23 @@
     theme = t === 'light' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', theme);
     col = RAMPS[theme];
-    ink = cssVar('--ink', ink); muted = cssVar('--muted', muted); line = cssVar('--line', line); line2 = cssVar('--line-2', line2);
+    ink = cssVar('--ink', ink); paper = cssVar('--bg', paper); muted = cssVar('--muted', muted); line = cssVar('--line', line); line2 = cssVar('--line-2', line2);
     font = getComputedStyle(document.body).fontFamily || font;
     ui.theme.textContent = theme === 'dark' ? 'Switch to light' : 'Switch to dark';
     var meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', cssVar('--bg', '#0a1424'));
     buildLegend();
-    needBake = true; schedule();
+    schedule();
   }
+
+  function genColor(g) { return col[Math.min(g, col.length) - 1]; }
 
   function buildLegend() {
     if (!T) return;
     ui.legend.textContent = '';
     for (var g = 1; g <= T.maxGen; g++) {
       var sp = document.createElement('span'), sw = document.createElement('i');
-      sw.style.background = col[g - 1];
+      sw.style.background = genColor(g);
       sp.appendChild(sw); sp.appendChild(document.createTextNode(String(g)));
       ui.legend.appendChild(sp);
     }
@@ -133,44 +151,69 @@
 
   /* ---------- geometry ---------- */
 
+  function layerZ(g) { return (g - T.maxGen / 2) * layerGap; }
+
   function layout() {
     var w = stage.clientWidth;
     if (!w) return;
     W = w; dpr = Math.min(window.devicePixelRatio || 1, 3);
-    cv.width = cv.height = off.width = off.height = Math.round(W * dpr);
-    cx = cy = W / 2; unit = (W / 2 - 14) / T.exp;
-    X = new Float64Array(T.n); Y = new Float64Array(T.n);
+    cv.width = cv.height = Math.round(W * dpr);
+    cx = cy = W / 2;
+    var rim = W / 2 - 14;
+    unit = rim / T.exp;
+    layerGap = T.maxGen ? W * TREE_HEIGHT / T.maxGen : 0;
+    persp = W * 2.5;
+    var reach = Math.hypot(rim, layerGap * T.maxGen / 2);
+    fit = rim / (reach * 1.08);                   /* the whole stack stays in frame at any angle */
+
+    WX = new Float64Array(T.n); WY = new Float64Array(T.n); WZ = new Float64Array(T.n);
+    SX = new Float64Array(T.n); SY = new Float64Array(T.n); SP = new Float64Array(T.n);
     for (var i = 0; i < T.n; i++) {
       var r = i ? T.lg[i] * unit : 0;
-      X[i] = cx + r * Math.cos(T.ang[i]); Y[i] = cy + r * Math.sin(T.ang[i]);
+      WX[i] = r * Math.cos(T.ang[i]); WY[i] = r * Math.sin(T.ang[i]); WZ[i] = layerZ(T.gen[i]);
     }
-    clampView(); needBake = true; schedule();
+    edgeSegs = T.n > 20000 ? 5 : T.n > 3000 ? 8 : 12;
+    stride = (edgeSegs + 1) * 3;
+    E = new Float32Array(T.n * stride);
+    for (i = 1; i < T.n; i++) buildEdge(i);
+    clampView(); schedule();
   }
 
-  function edgePath(c, i, segs) {
+  function buildEdge(i) {
     var j = T.par[i], r0 = j ? T.lg[j] * unit : 0, r1 = T.lg[i] * unit, a1 = T.ang[i], a0 = j ? T.ang[j] : a1;
-    c.moveTo(cx + r0 * Math.cos(a0), cy + r0 * Math.sin(a0));
-    for (var k = 1; k <= segs; k++) {
-      var t = k / segs, a = a0 + (a1 - a0) * (1 - Math.pow(1 - t, 3)), r = r0 + (r1 - r0) * t;
-      c.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
+    var z0 = WZ[j], z1 = WZ[i], o = i * stride;
+    for (var k = 0; k <= edgeSegs; k++) {
+      var t = k / edgeSegs, a = a0 + (a1 - a0) * (1 - Math.pow(1 - t, 3)), r = r0 + (r1 - r0) * t;
+      E[o++] = r * Math.cos(a); E[o++] = r * Math.sin(a);
+      E[o++] = z0 + (z1 - z0) * t * t * (3 - 2 * t);       /* leave and arrive level with each layer */
     }
   }
 
-  /* all edges, pre-rendered at the current view; redrawn only when the view or theme changes */
-  function bake() {
-    needBake = false;
-    if (!W) return;
-    var big = T.exp >= 16, segs = big ? 12 : 16;
-    octx.setTransform(1, 0, 0, 1, 0, 0); octx.clearRect(0, 0, off.width, off.height);
-    octx.setTransform(dpr * s, 0, 0, dpr * s, dpr * tx, dpr * ty);
-    octx.lineWidth = (big ? 0.5 : 0.7) * Math.pow(s, 0.3) / s;
-    octx.globalAlpha = big ? 0.45 : 0.55;
-    for (var g = 1; g <= T.maxGen; g++) {
-      octx.beginPath();
-      for (var i = 1; i < T.n; i++) if (T.gen[i] === g) edgePath(octx, i, segs);
-      octx.strokeStyle = col[g - 1]; octx.stroke();
+  function setAngles() { cosS = Math.cos(spin); sinS = Math.sin(spin); cosT = Math.cos(tilt); sinT = Math.sin(tilt); }
+
+  /* world to screen: spin about the stack, tilt the stack, then perspective, fit, and zoom */
+  function view(x, y, z) {
+    var x1 = x * cosS - y * sinS, y1 = x * sinS + y * cosS;
+    var y2 = y1 * cosT - z * sinT, z2 = y1 * sinT + z * cosT;
+    outP = persp / (persp - z2) * fit;
+    outX = (cx + x1 * outP) * s + tx; outY = (cy + y2 * outP) * s + ty;
+  }
+
+  function addEdge(i) {
+    var o = i * stride;
+    for (var k = 0; k <= edgeSegs; k++, o += 3) {
+      view(E[o], E[o + 1], E[o + 2]);
+      if (k) ctx.lineTo(outX, outY); else ctx.moveTo(outX, outY);
     }
-    octx.globalAlpha = 1;
+  }
+
+  function addCircle(r, z) {
+    var steps = 72;
+    for (var k = 0; k <= steps; k++) {
+      var a = A0 + (A1 - A0) * k / steps;
+      view(r * Math.cos(a), r * Math.sin(a), z);
+      if (k) ctx.lineTo(outX, outY); else ctx.moveTo(outX, outY);
+    }
   }
 
   function upto(v) {
@@ -182,77 +225,155 @@
   function radius(i) {
     if (!i) return 9;
     if (isBig(i)) return T.P[i] < 10 ? 8 : 9.5;
-    var base = T.exp >= 16 ? 0.8 : T.exp >= 14 ? 1 : 1.15, k = T.exp >= 16 ? 0.45 : 0.62;
+    var base = T.exp >= 18 ? 0.6 : T.exp >= 16 ? 0.8 : T.exp >= 14 ? 1 : 1.15, k = T.exp >= 18 ? 0.18 : T.exp >= 16 ? 0.45 : 0.62;
     return base + k * Math.sqrt(cnt[i]);
   }
 
   /* ---------- drawing ---------- */
 
+  /* farther layers fade, which is most of what makes the stack read as depth */
+  function fog(g) {
+    var half = layerGap * T.maxGen / 2;
+    return half ? 0.7 + 0.3 * (layerZ(g) * cosT) / half : 1;
+  }
+
+  function dotSize(i) { return radius(i) * Math.sqrt(s) * SP[i] / fit; }
+
+  function drawRings(m) {
+    var step = T.exp <= 13 ? 3 : 4, base = layerZ(0), k, g;
+    ctx.lineWidth = 1; ctx.font = '11px ' + font; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (k = 2; k <= T.exp; k++) {
+      ctx.beginPath(); addCircle(k * unit, base);
+      ctx.strokeStyle = k % step ? line : line2; ctx.stroke();
+      if (k > 3 && k % step === 0) {
+        view(0, -k * unit, base);
+        ctx.fillStyle = muted; ctx.fillText(Math.pow(2, k).toLocaleString('en-US'), outX, outY);
+      }
+    }
+    /* the rim of each generation's layer, once it has a prime in it */
+    for (g = 1; g <= T.maxGen; g++) {
+      var list = T.byGen[g], top = 0;
+      for (k = 0; k < list.length && list[k] < m; k++) top = Math.max(top, T.lg[list[k]]);
+      if (!top) continue;
+      ctx.beginPath(); addCircle(top * unit, layerZ(g));
+      ctx.strokeStyle = genColor(g); ctx.globalAlpha = 0.28 * fog(g); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  function drawLayer(g, m) {
+    var list = T.byGen[g], f = fog(g), big = T.exp >= 16, width = (big ? 0.5 : 0.7) * Math.pow(s, 0.3), i, k, r;
+    var c = genColor(g);
+
+    ctx.beginPath();
+    for (k = 0; k < list.length && (i = list[k]) < m; k++) if (!(marked && marked[i])) addEdge(i);
+    ctx.strokeStyle = c; ctx.lineWidth = width;
+    ctx.globalAlpha = (marked ? DIM * 0.5 : big ? 0.45 : 0.55) * f;
+    ctx.stroke();
+
+    ctx.beginPath();
+    for (k = 0; k < list.length && (i = list[k]) < m; k++) if (!isBig(i) && !(marked && marked[i])) {
+      r = dotSize(i); ctx.moveTo(SX[i] + r, SY[i]); ctx.arc(SX[i], SY[i], r, 0, TAU);
+    }
+    ctx.fillStyle = c; ctx.globalAlpha = (marked ? DIM : 1) * f; ctx.fill();
+    ctx.globalAlpha = 1;
+
+    if (!marked) return;
+    for (k = 0; k < list.length && (i = list[k]) < m; k++) if (marked[i]) {
+      ctx.beginPath(); addEdge(i); ctx.lineWidth = width * 2; ctx.strokeStyle = c; ctx.stroke();
+      if (isBig(i)) continue;
+      r = dotSize(i) + 1;
+      ctx.beginPath(); ctx.arc(SX[i], SY[i], r, 0, TAU); ctx.fillStyle = c; ctx.fill();
+      ctx.beginPath(); ctx.arc(SX[i], SY[i], r + 2.5, 0, TAU); ctx.strokeStyle = ink; ctx.lineWidth = 1.2; ctx.stroke();
+    }
+  }
+
   function draw(ts) {
     if (!W) return;
-    if (needBake) bake();
-    var m = upto(L), rho = L * unit, zf = Math.pow(s, 0.5) / s;   /* dots grow gently with zoom */
-    var scx = cx * s + tx, scy = cy * s + ty, i, k;
+    var m = upto(L), i, k, g;
+    setAngles();
+    for (i = 0; i < m; i++) { view(WX[i], WY[i], WZ[i]); SX[i] = outX; SY[i] = outY; SP[i] = outP; }
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, W);
+    drawRings(m);
 
-    /* doubling rings + labels in the gap */
-    var step = T.exp <= 13 ? 3 : 4;
-    ctx.lineWidth = 1; ctx.font = '11px ' + font; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    for (k = 2; k <= T.exp; k++) {
-      ctx.beginPath(); ctx.arc(scx, scy, k * unit * s, A0, A1);
-      ctx.strokeStyle = k % step ? line : line2; ctx.stroke();
-      if (k > 3 && k % step === 0) { ctx.fillStyle = muted; ctx.fillText((1 << k).toLocaleString('en-US'), scx, scy - k * unit * s); }
-    }
-
-    /* edges, revealed up to the growth front */
-    ctx.save(); ctx.beginPath(); ctx.arc(scx, scy, rho * s, 0, TAU); ctx.clip();
-    ctx.drawImage(off, 0, 0, W, W);
-    ctx.restore();
-
-    ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * tx, dpr * ty);
     cnt.fill(0);
     for (i = 1; i < m; i++) cnt[T.par[i]]++;
-    for (var g = 1; g <= T.maxGen; g++) {
-      ctx.beginPath();
-      for (i = 1; i < m; i++) if (T.gen[i] === g && !isBig(i)) {
-        var r = radius(i) * zf; ctx.moveTo(X[i] + r, Y[i]); ctx.arc(X[i], Y[i], r, 0, TAU);
-      }
-      ctx.fillStyle = col[g - 1]; ctx.fill();
-    }
+    /* painter's order: the layer farthest from the viewer first */
+    for (k = 1; k <= T.maxGen; k++) drawLayer(cosT >= 0 ? k : T.maxGen + 1 - k, m);
+
     if (L < T.exp) {
-      ctx.beginPath(); ctx.arc(cx, cy, rho, 0, TAU);
-      ctx.strokeStyle = muted; ctx.lineWidth = 1 / s; ctx.stroke();
+      ctx.beginPath(); addCircle(L * unit, layerZ(0));
+      ctx.strokeStyle = muted; ctx.lineWidth = 1; ctx.stroke();
     }
 
     /* the line being described */
     if (!playing || ts - shownAt > 130 || shown > m - 1) { shown = m - 1; shownAt = ts; }
+    var pair = near !== null && near.hi < m;     /* scrubbed back past the pair: fall through, as with sel */
     var picked = sel >= 0 && sel < m;
     var f = picked ? sel : m >= T.n ? T.deep : shown;
-    if (f > 0) {
-      ctx.beginPath();
-      for (k = f; k > 0; k = T.par[k]) edgePath(ctx, k, 16);
-      ctx.strokeStyle = ink; ctx.lineWidth = 1.7 / s; ctx.lineJoin = 'round'; ctx.stroke();
-      for (k = f; k > 0; k = T.par[k]) {
-        ctx.beginPath(); ctx.arc(X[k], Y[k], radius(k) * zf + (k === f ? 3 : 1.3) / s, 0, TAU);
-        ctx.lineWidth = (k === f ? 1.7 : 1.2) / s; ctx.stroke();
-      }
-    }
+    var listing = marked !== null && !pair && !picked;   /* the filter speaks for the panel; skip the auto line */
+    if (pair) { trace(near.lo); trace(near.hi); }
+    else if (f > 0 && !listing) trace(f);
 
     /* labelled discs for 2, 3, 5, 17 */
     for (i = 0; i < Math.min(m, 8); i++) if (isBig(i)) {
-      ctx.beginPath(); ctx.arc(X[i], Y[i], radius(i) * zf, 0, TAU);
-      ctx.fillStyle = i ? col[0] : ink; ctx.fill();
+      ctx.beginPath(); ctx.arc(SX[i], SY[i], dotSize(i), 0, TAU);
+      ctx.fillStyle = i ? col[0] : ink;
+      ctx.globalAlpha = marked && i && !marked[i] ? DIM : 1; ctx.fill();
+      ctx.globalAlpha = 1;
+      var scale = Math.sqrt(s) * SP[i] / fit;
+      ctx.font = '500 ' + ((i ? 11 : 12) * scale) + 'px ' + font;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = paper; ctx.fillText(String(T.P[i]), SX[i], SY[i] + 0.5 * scale);
     }
-    ctx.globalCompositeOperation = 'destination-out'; ctx.fillStyle = '#000';
-    for (i = 0; i < Math.min(m, 8); i++) if (isBig(i)) {
-      ctx.font = '500 ' + ((i ? 11 : 12) * zf) + 'px ' + font;
-      ctx.fillText(String(T.P[i]), X[i], Y[i] + 0.5 * zf);
-    }
-    ctx.globalCompositeOperation = 'source-over';
 
-    describe(f, picked, m);
+    put(ui.chainLabel, listing ? 'Hanging directly from ' + rootP : 'Line of descent');
+    if (pair) { drawTags(near.lo, near.hi); describeNear(); }
+    else if (listing) describeRoot(m);
+    else describe(f, picked, m);
+    put(ui.upto, 'up to ' + fmt(Math.min(T.N, Math.floor(Math.pow(2, L) + 1e-6))));
+    put(ui.count, fmt(m) + (m === 1 ? ' prime' : ' primes'));
+  }
+
+  /* one line of descent, from prime f back to 2 */
+  function trace(f) {
+    var k;
+    ctx.beginPath();
+    for (k = f; k > 0; k = T.par[k]) addEdge(k);
+    ctx.strokeStyle = ink; ctx.lineWidth = 1.7; ctx.lineJoin = 'round'; ctx.stroke();
+    for (k = f; k > 0; k = T.par[k]) {
+      ctx.beginPath(); ctx.arc(SX[k], SY[k], dotSize(k) + (k === f ? 3 : 1.3), 0, TAU);
+      ctx.lineWidth = k === f ? 1.7 : 1.2; ctx.stroke();
+    }
+  }
+
+  /* value tags on the two highlighted primes, which can sit far apart on the tree */
+  function drawTags(a, b) {
+    var H = 20, GAP_PX = 10, placed = null;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.font = '500 12px ' + font; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    [a, b].forEach(function (i) {
+      var sx = SX[i], sy = SY[i];
+      if (sx < 0 || sy < 0 || sx > W || sy > W) return;
+      var label = fmt(T.P[i]), w = ctx.measureText(label).width + 12;
+      var len = Math.hypot(sx - W / 2, sy - W / 2) || 1, ux = (sx - W / 2) / len, uy = (sy - W / 2) / len;
+      var bx = sx + ux * (w / 2 + GAP_PX), by = sy + uy * (H / 2 + GAP_PX);
+      /* no room outside the rim: sit on the inner side rather than cover the dot */
+      if (bx < w / 2 + 2 || bx > W - w / 2 - 2 || by < H / 2 + 2 || by > W - H / 2 - 2) {
+        bx = sx - ux * (w / 2 + GAP_PX); by = sy - uy * (H / 2 + GAP_PX);
+      }
+      if (placed && Math.abs(bx - placed.x) < (w + placed.w) / 2 + 2 && Math.abs(by - placed.y) < H + 2) {
+        by = placed.y + (by >= placed.y && placed.y + H + 2 <= W - H / 2 ? 1 : -1) * (H + 2);
+      }
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(bx - w / 2, by - H / 2, w, H, 6); else ctx.rect(bx - w / 2, by - H / 2, w, H);
+      ctx.fillStyle = paper; ctx.fill();
+      ctx.strokeStyle = ink; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = ink; ctx.fillText(label, bx, by + 0.5);
+      placed = { x: bx, y: by, w: w };
+    });
   }
 
   function put(el, text) { if (el._t !== text) { el._t = text; el.textContent = text; } }
@@ -269,19 +390,40 @@
       var kids = T.kids[f].length;
       var text = lead + ' · generation ' + T.gen[f] + '\n' + p + ' − 1 = ' + fac +
         (playing ? '' : '\n' + (kids ? kids + (kids === 1 ? ' child' : ' children') : 'No children') + ' up to ' + fmt(T.N));
-      if (ui.detail._t !== text) {
-        ui.detail._t = text; ui.detail.textContent = '';
-        text.split('\n').forEach(function (t) { var d = document.createElement('div'); d.textContent = t; ui.detail.appendChild(d); });
-      }
+      setDetail(text);
     } else {
       var t0 = 'The root · every prime traces back to 2' + (playing ? '' : '\n' + T.kids[0].length + ' children: ' + T.kids[0].map(function (c) { return T.P[c]; }).join(', '));
-      if (ui.detail._t !== t0) {
-        ui.detail._t = t0; ui.detail.textContent = '';
-        t0.split('\n').forEach(function (t) { var d = document.createElement('div'); d.textContent = t; ui.detail.appendChild(d); });
-      }
+      setDetail(t0);
     }
-    put(ui.upto, 'up to ' + fmt(Math.min(T.N, Math.floor(Math.pow(2, L) + 1e-6))));
-    put(ui.count, fmt(m) + (m === 1 ? ' prime' : ' primes'));
+  }
+
+  function describeNear() {
+    var line = function (i) {
+      var ch = [];
+      for (var k = i; k >= 0; k = T.par[k]) ch.push(T.P[k]);
+      return ch.reverse().join(' → ');
+    };
+    var eq = function (i) {
+      return T.P[i] + ' − 1 = ' + T.factor(T.P[i] - 1).map(function (x) { return x[0] + sup(x[1]); }).join(' × ') +
+        ' · generation ' + T.gen[i];
+    };
+    put(ui.chain, line(near.lo) + '\n' + line(near.hi));
+    setDetail('Closest to ' + fmt(near.v) + ' · ' + (near.v - T.P[near.lo]) + ' below, ' + (T.P[near.hi] - near.v) + ' above\n' +
+      eq(near.lo) + '\n' + eq(near.hi));
+  }
+
+  function describeRoot(m) {
+    var LIST_MAX = 12;
+    var found = rootKids.filter(function (i) { return i < m; }).map(function (i) { return T.P[i]; });
+    put(ui.chain, found.length ? found.slice(0, LIST_MAX).join(', ') + (found.length > LIST_MAX ? ', …' : '') : m >= T.n ? 'None' : 'None yet');
+    setDetail(fmt(found.length) + ' of ' + fmt(T.n) + ' primes up to ' + fmt(T.N) +
+      (rootP === 2 ? '\nFermat primes: p − 1 is a power of 2' : ''));
+  }
+
+  function setDetail(text) {
+    if (ui.detail._t === text) return;
+    ui.detail._t = text; ui.detail.textContent = '';
+    text.split('\n').forEach(function (t) { var d = document.createElement('div'); d.textContent = t; ui.detail.appendChild(d); });
   }
 
   /* ---------- frame loop ---------- */
@@ -304,7 +446,7 @@
     ui.playIcon.className = playing ? 'icon-pause' : 'icon-play';
     ui.play.setAttribute('aria-label', playing ? 'Pause' : L >= T.exp ? 'Replay' : 'Play');
   }
-  function play() { if (L >= T.exp) { L = 1; sel = -1; writeHash(); } playing = true; lastTs = 0; setPlayButton(); schedule(); }
+  function play() { if (L >= T.exp) { L = 1; sel = -1; clearNear(); writeHash(); } playing = true; lastTs = 0; setPlayButton(); schedule(); }
   function pause() { playing = false; setPlayButton(); schedule(); }
   function showAll() { playing = false; L = T.exp; ui.grow.value = 1000; setPlayButton(); schedule(); }
 
@@ -316,14 +458,14 @@
       tx = Math.min(0, Math.max(W - W * s, tx));
       ty = Math.min(0, Math.max(W - W * s, ty));
     }
-    cv.style.touchAction = s > 1 ? 'none' : 'pan-y';
   }
   function zoomAt(px, py, factor) {
     var ns = Math.min(60, Math.max(1, s * factor)), f = ns / s;
     tx = px - (px - tx) * f; ty = py - (py - ty) * f; s = ns;
-    clampView(); needBake = true; schedule();
+    clampView(); schedule();
   }
-  function resetView() { s = 1; clampView(); needBake = true; schedule(); }
+  function resetView() { s = 1; clampView(); schedule(); }
+  function resetAngle() { spin = START_SPIN; tilt = START_TILT; resetView(); }
 
   function local(e) { var b = cv.getBoundingClientRect(); return { x: (e.clientX - b.left) * W / b.width, y: (e.clientY - b.top) * W / b.height }; }
 
@@ -344,7 +486,16 @@
     pts.set(e.pointerId, p);
     if (pts.size === 1) {
       if (!moved && Math.hypot(p.x - down.x, p.y - down.y) > 6) moved = true;
-      if (moved && s > 1) { tx += p.x - prev.x; ty += p.y - prev.y; clampView(); needBake = true; cv.classList.add('grab'); schedule(); }
+      if (moved) {
+        cv.classList.add('grab');
+        if (e.shiftKey && s > 1) { tx += p.x - prev.x; ty += p.y - prev.y; clampView(); }
+        else {
+          /* once the stack is upside down, a sideways drag still follows the pointer */
+          spin += (Math.cos(tilt) >= 0 ? 1 : -1) * (p.x - prev.x) * DRAG_SPEED;
+          tilt += (p.y - prev.y) * DRAG_SPEED;
+        }
+        schedule();
+      }
     } else if (pts.size === 2 && pinch) {
       var now = pinchState();
       tx += now.x - pinch.x; ty += now.y - pinch.y;
@@ -366,18 +517,18 @@
     var p = local(e), dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
     zoomAt(p.x, p.y, Math.exp(-dy * 0.0015));
   }, { passive: false });
-  cv.addEventListener('dblclick', function (e) { e.preventDefault(); resetView(); });
+  cv.addEventListener('dblclick', function (e) { e.preventDefault(); resetAngle(); });
   ui.zin.addEventListener('click', function () { zoomAt(W / 2, W / 2, 1.6); });
   ui.zout.addEventListener('click', function () { zoomAt(W / 2, W / 2, 1 / 1.6); });
-  ui.zreset.addEventListener('click', resetView);
+  ui.zreset.addEventListener('click', resetAngle);
 
   function pick(p) {
     var m = upto(L), best = -1, bd = 22 * 22;
     for (var i = 0; i < m; i++) {
-      var dx = X[i] * s + tx - p.x, dy = Y[i] * s + ty - p.y, d = dx * dx + dy * dy;
+      var dx = SX[i] - p.x, dy = SY[i] - p.y, d = dx * dx + dy * dy;
       if (d < bd) { bd = d; best = i; }
     }
-    sel = best;
+    sel = best; clearNear();
     if (playing) pause();
     writeHash(); schedule();
   }
@@ -388,65 +539,300 @@
   ui.grow.addEventListener('input', function () {
     playing = false; L = 1 + ui.grow.value / 1000 * (T.exp - 1); setPlayButton(); schedule();
   });
-  ui.range.addEventListener('change', function () { setRange(+ui.range.value, true); });
+  ui.boundForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var raw = ui.bound.value.replace(/[\s,_]/g, '');
+    if (!/^\d+$/.test(raw) || BigInt(raw) < BigInt(1)) { sayBound('Enter a positive integer.'); return; }
+    var v = BigInt(raw);
+    if (v > MAX_BOUND) { sayBound('The limit is ' + MAX_BOUND.toLocaleString('en-US') + '.'); return; }
+    if (v === BigInt(1)) { stopRun(); sayBound('There are no primes up to 1.', true); return; }
+    sayBound('');
+    setBound(v, true);
+    if (v > BigInt(TREE_MAX)) startRun();
+  });
+  ui.stop.addEventListener('click', function () { stopRun(); });
   ui.theme.addEventListener('click', function () { applyTheme(theme === 'dark' ? 'light' : 'dark'); store.set('pft-theme', theme); });
+  ui.rootToggle.addEventListener('change', function () {
+    rootP = ui.rootToggle.checked ? 2 : 0;
+    if (rootP) { sel = -1; clearNear(); }        /* a selection would hide the list in the panel */
+    applyRoot(); writeHash(); schedule();
+  });
   ui.q.addEventListener('input', function () { ui.qerr.textContent = ''; });
 
   ui.find.addEventListener('submit', function (e) {
     e.preventDefault();
     var raw = ui.q.value.replace(/[\s,]/g, '');
-    if (!raw) { ui.qerr.textContent = 'Enter a prime number.'; return; }
-    if (!/^\d+$/.test(raw) || +raw < 2) { ui.qerr.textContent = 'Enter a whole number, 2 or larger.'; return; }
+    if (!raw) { say('Enter a prime number.'); return; }
+    if (!/^\d+$/.test(raw) || +raw < 2) { say('Enter a whole number, 2 or larger.'); return; }
     var v = +raw;
-    if (v > (1 << MAX_N_EXP)) { ui.qerr.textContent = 'This page goes up to ' + fmt(1 << MAX_N_EXP) + '. Try a smaller prime.'; return; }
-    if (!isPrime(v)) {
-      var lo = v - 1, hi = v + 1;
-      while (lo >= 2 && !isPrime(lo)) lo--;
-      while (!isPrime(hi)) hi++;
-      ui.qerr.textContent = fmt(v) + ' isn’t prime. Nearest primes: ' + (lo >= 2 ? fmt(lo) + ' and ' : '') + fmt(hi) + '.';
-      return;
-    }
-    ui.qerr.textContent = '';
-    focusPrime(v);
+    if (v > TREE_MAX) { say('Search goes up to ' + fmt(TREE_MAX) + '. Try a smaller prime.'); return; }
+    if (isPrime(v)) focusPrime(v); else focusNearest(v);
   });
 
-  function focusPrime(v) {
-    if (v > T.N) {
-      var e = RANGES.filter(function (r) { return (1 << r) >= v; })[0];
-      setRange(e, false);
-    }
-    var i = T.idx[v];
-    if (i < 0) return;
-    sel = i; showAll(); writeHash();
+  function say(text, isNote) {
+    ui.qerr.textContent = text;
+    ui.qerr.classList.toggle('note', !!isNote);
   }
 
-  function setRange(exp, animate) {
-    if (!T || T.exp !== exp) {
-      T = build(exp);
-      cnt = new Uint16Array(T.n);
-      ui.range.value = String(exp);
-      ui.stats.textContent = fmt(T.n) + ' primes · ' + fmt(T.leaves) + ' with no children · deepest line ' + T.maxGen + ' steps';
+  function clearNear() { near = null; say(''); }
+
+  function fitRange(v) {
+    if (v <= T.N) return;
+    var b = 2;
+    while (b < v) b *= 2;
+    setBound(BigInt(Math.min(b, TREE_MAX)), false);
+  }
+
+  function focusPrime(v) {
+    fitRange(v);
+    var i = T.idx[v];
+    if (i < 0) return;
+    sel = i; clearNear(); showAll(); writeHash();
+  }
+
+  /* v is a whole number >= 4 that isn't prime, so a prime exists on both sides */
+  function focusNearest(v) {
+    var lo = v - 1, hi = v + 1;
+    while (!isPrime(lo)) lo--;
+    while (!isPrime(hi)) hi++;
+    if (hi > TREE_MAX) {                         /* the prime above is past the last tree */
+      focusPrime(lo);
+      say(fmt(v) + ' isn’t prime. Closest prime here is ' + fmt(lo) + '; the next, ' + fmt(hi) + ', is past this page’s limit.', true);
+      return;
+    }
+    fitRange(hi);
+    sel = -1; near = { v: v, lo: T.idx[lo], hi: T.idx[hi] };
+    resetView(); showAll(); writeHash();
+    say(fmt(v) + ' isn’t prime. Showing the closest primes, ' + fmt(lo) + ' and ' + fmt(hi) + '.', true);
+  }
+
+  /* a root outside this tree (not prime, or past the range) leaves every prime lit */
+  function applyRoot() {
+    var i = rootP >= 2 && rootP % 1 === 0 && rootP <= T.N ? T.idx[rootP] : -1;
+    rootKids = i >= 0 ? T.kids[i] : null;
+    marked = null;
+    if (!rootKids) return;
+    marked = new Uint8Array(T.n);
+    marked[i] = 1;
+    rootKids.forEach(function (k) { marked[k] = 1; });
+  }
+
+  function setBound(b, animate) {
+    stopRun();
+    put(ui.runStatus, '');
+    bound = b;
+    var N = b > BigInt(TREE_MAX) ? TREE_MAX : Number(b);
+    if (!T || T.N !== N) {
+      T = build(N);
+      cnt = new Uint32Array(T.n);
+      applyRoot();
       buildLegend();
     }
-    sel = -1; s = 1; layout();
-    if (animate && !reduceMotion) { L = 1; ui.grow.value = 0; play(); } else showAll();
+    showStats();
+    ui.bound.value = fmtBig(b);
+    sel = -1; clearNear(); s = 1; layout();
+    if (animate && !reduceMotion && N <= ANIMATE_MAX) { L = 1; ui.grow.value = 0; play(); } else showAll();
     writeHash();
   }
 
+  function showStats() {
+    var drawn = fmt(T.n) + (T.n === 1 ? ' prime' : ' primes') + ' · ' + fmt(T.leaves) + ' with no children · deepest line ' +
+      T.maxGen + (T.maxGen === 1 ? ' step' : ' steps');
+    ui.stats.textContent = bound > BigInt(T.N) ? 'The tree stops at ' + fmt(T.N) + ': ' + drawn : drawn;
+  }
+
+  function fmtBig(b) { return b.toLocaleString('en-US'); }
+
+  function sayBound(text, isNote) {
+    ui.bounderr.textContent = text;
+    ui.bounderr.classList.toggle('note', !!isNote);
+  }
+
+  /* ---------- counting past the tree, across workers ---------- */
+
+  var run = null;
+
+  function oddPrimesTo(limit) {
+    var comp = new Uint8Array(limit + 1), total = 0, i, j;
+    for (i = 3; i <= limit; i += 2) {
+      if (comp[i]) continue;
+      total++;
+      for (j = i * i; j <= limit; j += 2 * i) comp[j] = 1;
+    }
+    var out = new Uint32Array(total), n = 0;
+    for (i = 3; i <= limit; i += 2) if (!comp[i]) out[n++] = i;
+    return out;
+  }
+
+  var referenceLoad = null, runToken = 0;
+
+  /* primes-reference.json: exact counts at fixed points, so a run needn't start at 2.
+     If it can't be read, counting still works from the beginning. */
+  function loadReference() {
+    if (!referenceLoad) {
+      referenceLoad = fetch('primes-reference.json')
+        .then(function (res) { return res.ok ? res.json() : []; })
+        .catch(function () { return []; });
+    }
+    return referenceLoad;
+  }
+
+  function startRun() {
+    var token = ++runToken;
+    loadReference().then(function (ref) { if (token === runToken) beginRun(ref); });
+  }
+
+  function beginRun(ref) {
+    var safe = BigInt(SAFE_MAX), start = null, known = null;
+    ref.forEach(function (e) {
+      var x = BigInt(e.x);
+      if (x > bound) return;
+      known = e;
+      if (x <= safe) start = e;
+    });
+    var total = Math.max(1, Math.min((navigator.hardwareConcurrency || 2) - 1, 32));
+    var target = bound > safe ? SAFE_MAX : Number(bound);
+    var from = start ? Number(start.x) + 1 : 3;
+    var r = { target: target, next: from, frontier: from, origin: from, start: start, known: known,
+              count: start ? Number(start.pi) : 1, last: start ? Number(start.largest) : 2,
+              t0: performance.now(), workers: [], done: new Map(), active: 0,
+              base: new Uint32Array(0), baseLimit: 0, baseVersion: 0 };
+    run = r;
+    if (r.next > r.target) { finishRun(); return; }
+    try {
+      for (var i = 0; i < total; i++) r.workers.push(makeWorker(r));
+    } catch (e) {
+      stopRun();
+      sayBound('This browser can’t run background workers here. Serve the page over http to count past the tree.');
+      return;
+    }
+    r.workers.forEach(dispatch);
+    r.timer = setInterval(showRun, 250);
+    ui.stop.hidden = false; ui.runBar.hidden = false;
+    showRun();
+  }
+
+  function makeWorker(r) {
+    var w = new Worker('sieve-worker.js');
+    w.baseVersion = 0;
+    w.onmessage = function (e) {
+      if (run !== r) return;
+      r.active--;
+      r.done.set(e.data.lo, e.data);
+      while (r.done.has(r.frontier)) {           /* only trust an unbroken run from the start */
+        var d = r.done.get(r.frontier);
+        r.done.delete(r.frontier);
+        r.count += d.count;
+        if (d.last) r.last = d.last;
+        r.frontier = d.hi;
+      }
+      dispatch(w);
+      if (!r.active && r.next > r.target) finishRun();
+    };
+    w.onerror = function () {
+      if (run !== r) return;
+      stopRun();
+      sayBound('A counting worker failed, so the count stopped early.');
+    };
+    return w;
+  }
+
+  function dispatch(w) {
+    var r = run;
+    if (!r || r.next > r.target) return;
+    var lo = r.next, hi = Math.min(lo + SEGMENT, r.target + 1);
+    var need = Math.ceil(Math.sqrt(hi)) + 1;
+    if (need > r.baseLimit) {                    /* overshoot, so this rarely runs */
+      r.baseLimit = Math.max(Math.ceil(need * 1.25), 1 << 16);
+      r.base = oddPrimesTo(r.baseLimit);
+      r.baseVersion++;
+    }
+    var job = { lo: lo, hi: hi };
+    if (w.baseVersion !== r.baseVersion) { job.base = r.base; w.baseVersion = r.baseVersion; }
+    r.next = hi; r.active++;
+    w.postMessage(job);
+  }
+
+  function runLine(r) {
+    return fmt(r.count) + ' primes up to ' + fmt(Math.max(2, r.frontier - 1)) + ' · largest ' + fmt(r.last);
+  }
+
+  function knownLine(r) {
+    if (!r.known || BigInt(r.known.x) <= BigInt(SAFE_MAX)) return '';
+    return '\nPublished: ' + BigInt(r.known.pi).toLocaleString('en-US') + ' primes up to ' + BigInt(r.known.x).toLocaleString('en-US');
+  }
+
+  function showRun() {
+    var r = run, secs = (performance.now() - r.t0) / 1000, reached = r.frontier - 1, sieved = r.frontier - r.origin;
+    var goal = Number(bound), share = reached / goal, left = (goal - reached) / (sieved / secs);
+    ui.runBar.value = share;
+    var pct = share < 0.0001 ? 'under 0.01%' : (share * 100).toFixed(2) + '%';
+    put(ui.runStatus, 'Counting on ' + r.workers.length + (r.workers.length === 1 ? ' worker' : ' workers') + ' · ' + pct +
+      (sieved > 0 ? ' · about ' + fmtSpan(left) + ' left' : '') + '\n' + runLine(r) + knownLine(r));
+  }
+
+  function fmtSpan(sec) {
+    var units = [[3.156e7, 'year'], [86400, 'day'], [3600, 'hour'], [60, 'minute'], [1, 'second']];
+    for (var i = 0; i < units.length; i++) if (sec >= units[i][0] || i === units.length - 1) {
+      var v = sec / units[i][0];
+      var n = v >= 1e15 ? v.toExponential(1) : fmt(Number(v.toPrecision(2)));
+      return n + ' ' + units[i][1] + (v >= 1.5 ? 's' : '');
+    }
+  }
+
+  function endRun() {
+    var r = run;
+    run = null;
+    if (r.timer) clearInterval(r.timer);
+    r.workers.forEach(function (w) { w.terminate(); });
+    ui.stop.hidden = true; ui.runBar.hidden = true;
+    return r;
+  }
+
+  function finishRun() {
+    var r = endRun(), secs = (performance.now() - r.t0) / 1000;
+    var capped = bound > BigInt(SAFE_MAX);
+    var how = r.workers.length ? secs.toFixed(1) + ' s on ' + r.workers.length + (r.workers.length === 1 ? ' worker' : ' workers') : 'no sieving needed';
+    var from = r.start ? ' · started at ' + fmt(Number(r.start.x)) : '';
+    put(ui.runStatus, (capped ? 'Stopped at the 2⁵³ limit. ' : 'Exact count. ') + runLine(r) + ' · ' + how + from + knownLine(r));
+  }
+
+  function stopRun() {
+    runToken++;                                  /* drop a run still waiting on the reference file */
+    if (!run) return;
+    var r = endRun();
+    put(ui.runStatus, 'Stopped. ' + runLine(r) + knownLine(r));
+  }
+
   function writeHash() {
-    var h = 'n=' + T.exp + (sel >= 0 ? '&p=' + T.P[sel] : '');
+    var h = 'max=' + bound + (near ? '&p=' + near.v : sel >= 0 ? '&p=' + T.P[sel] : '') + (rootP ? '&root=' + rootP : params.get('root') ? '&root=0' : '');   /* root=0 outranks a ?root= in the query */
     try { window.history.replaceState(null, '', '#' + h); } catch (e) { /* sandboxed */ }
+  }
+
+  function parseBound(text) {
+    if (!text || !/^\d+$/.test(text)) return null;
+    var v = BigInt(text);
+    return v >= BigInt(2) && v <= MAX_BOUND ? v : null;
   }
 
   /* ---------- start ---------- */
 
   var hp = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-  var startExp = RANGES.indexOf(+hp.get('n')) >= 0 ? +hp.get('n') : RANGES.indexOf(+params.get('n')) >= 0 ? +params.get('n') : 13;
+  var startN = +(hp.get('n') || params.get('n'));
+  var startBound = parseBound(hp.get('max') || params.get('max')) ||
+    BigInt(startN >= 2 && startN <= 20 && startN % 1 === 0 ? Math.pow(2, startN) : 8192);
   var startP = +(hp.get('p') || params.get('p') || 0);
 
-  T = build(startExp); cnt = new Uint16Array(T.n);
-  ui.range.value = String(startExp);
-  ui.stats.textContent = fmt(T.n) + ' primes · ' + fmt(T.leaves) + ' with no children · deepest line ' + T.maxGen + ' steps';
+  rootP = +(hp.get('root') || params.get('root') || 0);
+
+  bound = startBound;
+  T = build(bound > BigInt(TREE_MAX) ? TREE_MAX : Number(bound)); cnt = new Uint32Array(T.n);
+  applyRoot();
+  ui.rootToggle.checked = rootP === 2;
+  ui.bound.value = fmtBig(bound);
+  showStats();
+  /* a link never starts the CPU-heavy count on its own */
+  if (bound > BigInt(TREE_MAX)) sayBound('Press Go to count past the tree. It uses most of your CPU until it ends or you stop it.', true);
   applyTheme(params.get('theme') || store.get('pft-theme') ||
     (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'));
 
@@ -455,7 +841,9 @@
   layout();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { font = getComputedStyle(document.body).fontFamily || font; ui.chain._t = ''; schedule(); });
 
-  if (startP && isPrime(startP) && startP <= (1 << MAX_N_EXP)) focusPrime(startP);
+  var startOk = startP >= 2 && startP % 1 === 0 && startP <= TREE_MAX;
+  if (startOk && isPrime(startP)) focusPrime(startP);
+  else if (startOk && startP >= 4) focusNearest(startP);
   else if (reduceMotion) showAll();
   else play();
 })();
