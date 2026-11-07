@@ -52,7 +52,7 @@ Upload the folder to any static host (Azure Storage static website, GitHub Pages
 | `n` | `#n=16` | Older form of `max`: the limit as a power of two, from 2 to 20 |
 | `p` | `#n=13&p=2879` | Opens with that prime selected; the hash updates as visitors tap. A non-prime such as `#p=100` highlights the closest prime on each side |
 | `root` | `#root=2` | Highlights only the primes that hang directly from that prime and dims the rest. `root=2` gives the Fermat primes. Ignored unless it's a prime in the current range. The "Only primes hanging directly from 2" checkbox turns `root=2` on and off |
-| `fill` | `#max=2000000&fill=1` | Shades the sheet between each prime's children, so the feathers read as solid shapes. The "Fill in the feathers" checkbox turns it on and off |
+| `fill` | `#max=2000000&fill=0` | `fill=0` removes the shading between each prime's children, which is on by default so the feathers read as solid shapes. The "Fill in the feathers" checkbox turns it on and off |
 
 ## Controls
 

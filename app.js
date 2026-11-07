@@ -123,7 +123,7 @@
   var bound = BigInt(8192);                      /* the visitor's upper limit; T stops at TREE_MAX */
   var near = null;                               /* { v, lo, hi }: a non-prime search and the primes either side */
   var rootP = 0, rootKids = null, marked = null; /* root=p filter: its children, and a per-prime "stay bright" flag */
-  var fillFans = false;                          /* shade the sheet between each parent's children */
+  var fillFans = true;                           /* shade the sheet between each parent's children */
   var frameReq = 0;
   var theme = 'dark', col = RAMPS.dark, ink = '#eef1f6', paper = '#0a1424', muted = '#7d8aa1', line = 'rgba(255,255,255,.09)', line2 = 'rgba(255,255,255,.16)';
   var font = 'Outfit, system-ui, sans-serif';
@@ -861,7 +861,7 @@
 
   function writeHash() {
     var h = 'max=' + bound + (near ? '&p=' + near.v : sel >= 0 ? '&p=' + T.P[sel] : '') + (rootP ? '&root=' + rootP : params.get('root') ? '&root=0' : '') +   /* root=0 outranks a ?root= in the query */
-      (fillFans ? '&fill=1' : params.get('fill') ? '&fill=0' : '');
+      (!fillFans ? '&fill=0' : params.get('fill') === '0' ? '&fill=1' : '');   /* likewise for fill=0 in the query */
     try { window.history.replaceState(null, '', '#' + h); } catch (e) { /* sandboxed */ }
   }
 
@@ -880,7 +880,7 @@
   var startP = +(hp.get('p') || params.get('p') || 0);
 
   rootP = +(hp.get('root') || params.get('root') || 0);
-  fillFans = (hp.get('fill') || params.get('fill')) === '1';
+  fillFans = (hp.get('fill') || params.get('fill')) !== '0';
 
   bound = startBound;
   T = build(bound > BigInt(TREE_MAX) ? TREE_MAX : Number(bound)); cnt = new Uint32Array(T.n);
