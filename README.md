@@ -52,13 +52,14 @@ Upload the folder to any static host (Azure Storage static website, GitHub Pages
 | `n` | `#n=16` | Older form of `max`: the limit as a power of two, from 2 to 20 |
 | `p` | `#n=13&p=2879` | Opens with that prime selected; the hash updates as visitors tap. A non-prime such as `#p=100` highlights the closest prime on each side |
 | `root` | `#root=2` | Highlights only the primes that hang directly from that prime and dims the rest. `root=2` gives the Fermat primes. Ignored unless it's a prime in the current range. The "Only primes hanging directly from 2" checkbox turns `root=2` on and off |
+| `rings` | `#max=8192&rings=value` | Makes the radius of each generation's ring proportional to its largest prime, instead of placing it on the tree's log scale. The "Size generation rings by largest prime" checkbox turns it on and off |
 | `gen` | `#max=8192&gen=3,4` | Shows only those generations and hides the rest. The color key does the same: tap colors to add or remove them, or tap All to reset |
 | `fill` | `#max=2000000&fill=0` | `fill=0` removes the shading between each prime's children, which is on by default so the feathers read as solid shapes. The "Fill in the feathers" checkbox turns it on and off |
 
 ## Controls
 
 Play or pause the growth, scrub with the slider, tap a dot to trace its line back to 2, search for a
-prime (up to 5,000,000), set the upper limit, fill in the feathers, pick which generations to show from the color key, go full screen, drag to rotate the tree on both axes, pinch or scroll to zoom, and shift-drag to pan when zoomed in. Each
+prime (up to 5,000,000), set the upper limit, fill in the feathers, size the generation rings by largest prime, pick which generations to show from the color key, go full screen, drag to rotate the tree on both axes, pinch or scroll to zoom, and shift-drag to pan when zoomed in. Each
 generation is its own layer. A double-click or the reset button restores the starting view. Visitors who prefer reduced motion see the finished tree without the animation.
 
 ## Notes

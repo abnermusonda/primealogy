@@ -37,7 +37,7 @@
     chainLabel: $('chainLabel'), chain: $('chain'), detail: $('detail'), find: $('find'), q: $('q'), qerr: $('qerr'),
     rootToggle: $('rootToggle'), boundForm: $('boundForm'), bound: $('bound'), bounderr: $('bounderr'),
     runBar: $('runBar'), runStatus: $('runStatus'), stop: $('stop'), stats: $('stats'), legend: $('legend'), theme: $('theme'),
-    fillToggle: $('fillToggle'), zin: $('zin'), zout: $('zout'), zreset: $('zreset'), zfull: $('zfull')
+    fillToggle: $('fillToggle'), ringToggle: $('ringToggle'), zin: $('zin'), zout: $('zout'), zreset: $('zreset'), zfull: $('zfull')
   };
 
   var store = {
@@ -124,6 +124,7 @@
   var near = null;                               /* { v, lo, hi }: a non-prime search and the primes either side */
   var rootP = 0, rootKids = null, marked = null; /* root=p filter: its children, and a per-prime "stay bright" flag */
   var genSel = null;                             /* generations on show as { g: 1 }; null means all */
+  var ringsByValue = false;                      /* ring radius follows a generation's largest prime itself, not its log */
   var fillFans = true;                           /* shade the sheet between each parent's children */
   var frameReq = 0;
   var theme = 'dark', col = RAMPS.dark, ink = '#eef1f6', paper = '#0a1424', muted = '#7d8aa1', line = 'rgba(255,255,255,.09)', line2 = 'rgba(255,255,255,.16)';
@@ -312,8 +313,9 @@
       var list = T.byGen[g], top = 0;
       for (k = 0; k < list.length && list[k] < m; k++) top = Math.max(top, T.lg[list[k]]);
       if (!top) continue;
-      ctx.beginPath(); addCircle(top * unit, layerZ(g));
-      ctx.strokeStyle = genColor(g); ctx.globalAlpha = 0.28 * fog(g); ctx.stroke();
+      /* lists run in rising order, so the prime before k is the largest so far; a prime at the limit reaches the rim */
+      ctx.beginPath(); addCircle(ringsByValue ? T.exp * unit * T.P[list[k - 1]] / T.N : top * unit, layerZ(g));
+      ctx.strokeStyle = genColor(g); ctx.globalAlpha = (ringsByValue ? 0.8 : 0.28) * fog(g); ctx.stroke();
       ctx.globalAlpha = 1;
     }
   }
@@ -655,6 +657,7 @@
     }
     syncLegend(); writeHash(); schedule();
   });
+  ui.ringToggle.addEventListener('change', function () { ringsByValue = ui.ringToggle.checked; writeHash(); schedule(); });
   ui.fillToggle.addEventListener('change', function () { fillFans = ui.fillToggle.checked; writeHash(); schedule(); });
   ui.q.addEventListener('input', function () { ui.qerr.textContent = ''; });
 
@@ -905,6 +908,7 @@
 
   function writeHash() {
     var h = 'max=' + bound + (near ? '&p=' + near.v : sel >= 0 ? '&p=' + T.P[sel] : '') + (rootP ? '&root=' + rootP : params.get('root') ? '&root=0' : '') +   /* root=0 outranks a ?root= in the query */
+      (ringsByValue ? '&rings=value' : params.get('rings') ? '&rings=log' : '') +
       (genSel ? '&gen=' + genList().join(',') : params.get('gen') ? '&gen=all' : '') +
       (!fillFans ? '&fill=0' : params.get('fill') === '0' ? '&fill=1' : '');   /* likewise for fill=0 in the query */
     try { window.history.replaceState(null, '', '#' + h); } catch (e) { /* sandboxed */ }
@@ -927,12 +931,14 @@
   rootP = +(hp.get('root') || params.get('root') || 0);
   fillFans = (hp.get('fill') || params.get('fill')) !== '0';
   genSel = parseGens(hp.get('gen') || params.get('gen'));
+  ringsByValue = (hp.get('rings') || params.get('rings')) === 'value';
 
   bound = startBound;
   T = build(bound > BigInt(TREE_MAX) ? TREE_MAX : Number(bound)); cnt = new Uint32Array(T.n);
   applyRoot();
   ui.rootToggle.checked = rootP === 2;
   ui.fillToggle.checked = fillFans;
+  ui.ringToggle.checked = ringsByValue;
   ui.bound.value = fmtBig(bound);
   showStats();
   /* a link never starts the CPU-heavy count on its own */
