@@ -29,6 +29,10 @@
           <button id="zin" type="button" aria-label="Zoom in">+</button>
           <button id="zout" type="button" aria-label="Zoom out">&minus;</button>
           <button id="zreset" type="button" aria-label="Reset view">&#8634;</button>
+          <button id="zfull" type="button" aria-label="Enter full screen" title="Full screen">
+            <svg class="fs-enter" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M1 5V1h4M11 1h4v4M15 11v4h-4M5 15H1v-4"/></svg>
+            <svg class="fs-exit" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 1v4H1M15 5h-4V1M11 15v-4h4M1 11h4v4"/></svg>
+          </button>
         </div>
       </div>
       <div class="transport">
@@ -72,6 +76,11 @@
         <span>Only primes hanging directly from 2</span>
       </label>
 
+      <label class="card check">
+        <input id="fillToggle" type="checkbox">
+        <span>Fill in the feathers</span>
+      </label>
+
       <div class="card">
         <div class="label">Generations from 2</div>
         <div id="legend" class="legend"></div>
@@ -89,6 +98,7 @@
       <li><strong>Distance.</strong> How far a dot sits from the center is log₂ of the prime, so each ring is a doubling.</li>
       <li><strong>Height.</strong> Each generation is its own layer, so a prime sits one level above its parent.</li>
       <li><strong>Color.</strong> How many steps the prime is from 2. The deepest lines end in chains where each prime is double the last, plus one.</li>
+      <li><strong>Feathers.</strong> A prime's children are laid out in order of size, so the edges fan out into a nearly flat sheet. Its curved outer edge is a log curve, because each ring doubles. Turn on the fill to see them as solid shapes.</li>
       <li><strong>Spokes from 2.</strong> Only Fermat primes (3, 5, 17, 257, 65537) hang straight from 2, because their p − 1 is a power of 2.</li>
     </ul>
   </section>

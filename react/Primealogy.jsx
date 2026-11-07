@@ -8,6 +8,7 @@ export default function Primealogy({ theme = 'dark', height = 980 }) {
         src={`/primealogy/index.html?embed=1&theme=${theme}`}
         style={{ width: '100%', height, border: 0, display: 'block', background: 'transparent' }}
         loading="lazy"
+        allowFullScreen
       />
     </section>
   );

@@ -18,7 +18,9 @@
   var START_TILT = 1.0, START_SPIN = 0;  /* radians; a tilt of 0 looks straight down the stack */
   var DRAG_SPEED = 0.008;               /* radians per pixel */
   var DIM = 0.22;                       /* opacity of primes outside a root=p filter */
-  var TREE_MAX = 1 << 20;               /* largest tree worth drawing; above this, workers count instead */
+  var FAN_MIN = 3;                      /* fewest children that make a feather worth filling */
+  var FAN_FILL = 0.3;                   /* opacity of a filled feather */
+  var TREE_MAX = 1 << 21;               /* largest tree worth drawing; above this, workers count instead */
   var ANIMATE_MAX = 1 << 16;            /* bigger trees appear finished rather than growing */
   var MAX_BOUND = BigInt('1223334444555554444333221');
   var SAFE_MAX = Number.MAX_SAFE_INTEGER;   /* the workers' sieve stops here */
@@ -35,7 +37,7 @@
     chainLabel: $('chainLabel'), chain: $('chain'), detail: $('detail'), find: $('find'), q: $('q'), qerr: $('qerr'),
     rootToggle: $('rootToggle'), boundForm: $('boundForm'), bound: $('bound'), bounderr: $('bounderr'),
     runBar: $('runBar'), runStatus: $('runStatus'), stop: $('stop'), stats: $('stats'), legend: $('legend'), theme: $('theme'),
-    zin: $('zin'), zout: $('zout'), zreset: $('zreset')
+    fillToggle: $('fillToggle'), zin: $('zin'), zout: $('zout'), zreset: $('zreset'), zfull: $('zfull')
   };
 
   var store = {
@@ -86,6 +88,14 @@
       for (var t = 0; t < c.length; t++) { var w = (a1 - a0) * wt[c[t]] / wt[k]; place(c[t], a, a + w); a += w; }
     })(0, A0, A1);
 
+    /* feathers, keyed by the generation of their children; 2 is left out because its
+       few spokes would make one polygon as wide as the whole tree */
+    var fans = [];
+    for (i = 1; i < n; i++) if (kids[i].length >= FAN_MIN) {
+      if (!fans[gen[i] + 1]) fans[gen[i] + 1] = [];
+      fans[gen[i] + 1].push(i);
+    }
+
     var deep = 0, leaves = 0;
     for (i = 1; i < n; i++) if (gen[i] > gen[deep]) deep = i;
     for (i = 0; i < n; i++) if (!kids[i].length) leaves++;
@@ -94,7 +104,7 @@
       while (v > 1) { var q = spf[v], e = 0; while (v % q === 0) { v /= q; e++; } out.push([q, e]); }
       return out;
     };
-    return { exp: exp, N: N, P: P, n: n, idx: idx, par: par, gen: gen, kids: kids, byGen: byGen, lg: lg, ang: ang,
+    return { exp: exp, N: N, P: P, n: n, idx: idx, par: par, gen: gen, kids: kids, byGen: byGen, fans: fans, lg: lg, ang: ang,
              deep: deep, maxGen: gen[deep], leaves: leaves, factor: factor };
   }
 
@@ -113,6 +123,7 @@
   var bound = BigInt(8192);                      /* the visitor's upper limit; T stops at TREE_MAX */
   var near = null;                               /* { v, lo, hi }: a non-prime search and the primes either side */
   var rootP = 0, rootKids = null, marked = null; /* root=p filter: its children, and a per-prime "stay bright" flag */
+  var fillFans = false;                          /* shade the sheet between each parent's children */
   var frameReq = 0;
   var theme = 'dark', col = RAMPS.dark, ink = '#eef1f6', paper = '#0a1424', muted = '#7d8aa1', line = 'rgba(255,255,255,.09)', line2 = 'rgba(255,255,255,.16)';
   var font = 'Outfit, system-ui, sans-serif';
@@ -156,6 +167,7 @@
   function layout() {
     var w = stage.clientWidth;
     if (!w) return;
+    if (W) { tx *= w / W; ty *= w / W; }          /* stay on the same spot when the stage changes size */
     W = w; dpr = Math.min(window.devicePixelRatio || 1, 3);
     cv.width = cv.height = Math.round(W * dpr);
     cx = cy = W / 2;
@@ -205,6 +217,22 @@
       view(E[o], E[o + 1], E[o + 2]);
       if (k) ctx.lineTo(outX, outY); else ctx.moveTo(outX, outY);
     }
+  }
+
+  /* a feather's outline: out along the first child's edge, across the tips, back down the
+     last child's edge. kids[] is in angle order, so this is the sheet the edges already span. */
+  function addFan(j, m) {
+    var c = T.kids[j], n = 0, t, k, o;
+    while (n < c.length && c[n] < m) n++;
+    if (n < FAN_MIN) return false;
+    addEdge(c[0]);
+    for (t = 1; t < n; t++) ctx.lineTo(SX[c[t]], SY[c[t]]);
+    for (k = edgeSegs - 1, o = c[n - 1] * stride + k * 3; k >= 0; k--, o -= 3) {
+      view(E[o], E[o + 1], E[o + 2]);
+      ctx.lineTo(outX, outY);
+    }
+    ctx.closePath();
+    return true;
   }
 
   function addCircle(r, z) {
@@ -264,6 +292,14 @@
   function drawLayer(g, m) {
     var list = T.byGen[g], f = fog(g), big = T.exp >= 16, width = (big ? 0.5 : 0.7) * Math.pow(s, 0.3), i, k, r;
     var c = genColor(g);
+
+    if (fillFans && T.fans[g]) {
+      ctx.fillStyle = c; ctx.globalAlpha = (marked ? DIM * 0.5 : FAN_FILL) * f;
+      for (k = 0; k < T.fans[g].length; k++) {
+        ctx.beginPath();
+        if (addFan(T.fans[g][k], m)) ctx.fill();
+      }
+    }
 
     ctx.beginPath();
     for (k = 0; k < list.length && (i = list[k]) < m; k++) if (!(marked && marked[i])) addEdge(i);
@@ -522,6 +558,24 @@
   ui.zout.addEventListener('click', function () { zoomAt(W / 2, W / 2, 1 / 1.6); });
   ui.zreset.addEventListener('click', resetAngle);
 
+  /* full screen holds the transport too, so the growth controls stay in reach */
+  var fsHost = stage.parentNode;
+  function fsElement() { return document.fullscreenElement || document.webkitFullscreenElement || null; }
+  function syncFull() {
+    var on = fsElement() === fsHost;
+    fsHost.classList.toggle('is-full', on);
+    ui.zfull.setAttribute('aria-label', on ? 'Exit full screen' : 'Enter full screen');
+    ui.zfull.title = on ? 'Exit full screen' : 'Full screen';
+  }
+  /* unsupported on iPhone, and blocked in an iframe that doesn't allow it */
+  if (!(fsHost.requestFullscreen || fsHost.webkitRequestFullscreen) || (document.fullscreenEnabled || document.webkitFullscreenEnabled) === false) ui.zfull.hidden = true;
+  ui.zfull.addEventListener('click', function () {
+    if (fsElement()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    else (fsHost.requestFullscreen || fsHost.webkitRequestFullscreen).call(fsHost);
+  });
+  document.addEventListener('fullscreenchange', syncFull);
+  document.addEventListener('webkitfullscreenchange', syncFull);
+
   function pick(p) {
     var m = upto(L), best = -1, bd = 22 * 22;
     for (var i = 0; i < m; i++) {
@@ -557,6 +611,7 @@
     if (rootP) { sel = -1; clearNear(); }        /* a selection would hide the list in the panel */
     applyRoot(); writeHash(); schedule();
   });
+  ui.fillToggle.addEventListener('change', function () { fillFans = ui.fillToggle.checked; writeHash(); schedule(); });
   ui.q.addEventListener('input', function () { ui.qerr.textContent = ''; });
 
   ui.find.addEventListener('submit', function (e) {
@@ -805,7 +860,8 @@
   }
 
   function writeHash() {
-    var h = 'max=' + bound + (near ? '&p=' + near.v : sel >= 0 ? '&p=' + T.P[sel] : '') + (rootP ? '&root=' + rootP : params.get('root') ? '&root=0' : '');   /* root=0 outranks a ?root= in the query */
+    var h = 'max=' + bound + (near ? '&p=' + near.v : sel >= 0 ? '&p=' + T.P[sel] : '') + (rootP ? '&root=' + rootP : params.get('root') ? '&root=0' : '') +   /* root=0 outranks a ?root= in the query */
+      (fillFans ? '&fill=1' : params.get('fill') ? '&fill=0' : '');
     try { window.history.replaceState(null, '', '#' + h); } catch (e) { /* sandboxed */ }
   }
 
@@ -824,11 +880,13 @@
   var startP = +(hp.get('p') || params.get('p') || 0);
 
   rootP = +(hp.get('root') || params.get('root') || 0);
+  fillFans = (hp.get('fill') || params.get('fill')) === '1';
 
   bound = startBound;
   T = build(bound > BigInt(TREE_MAX) ? TREE_MAX : Number(bound)); cnt = new Uint32Array(T.n);
   applyRoot();
   ui.rootToggle.checked = rootP === 2;
+  ui.fillToggle.checked = fillFans;
   ui.bound.value = fmtBig(bound);
   showStats();
   /* a link never starts the CPU-heavy count on its own */

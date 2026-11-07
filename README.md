@@ -52,19 +52,20 @@ Upload the folder to any static host (Azure Storage static website, GitHub Pages
 | `n` | `#n=16` | Older form of `max`: the limit as a power of two, from 2 to 20 |
 | `p` | `#n=13&p=2879` | Opens with that prime selected; the hash updates as visitors tap. A non-prime such as `#p=100` highlights the closest prime on each side |
 | `root` | `#root=2` | Highlights only the primes that hang directly from that prime and dims the rest. `root=2` gives the Fermat primes. Ignored unless it's a prime in the current range. The "Only primes hanging directly from 2" checkbox turns `root=2` on and off |
+| `fill` | `#max=2000000&fill=1` | Shades the sheet between each prime's children, so the feathers read as solid shapes. The "Fill in the feathers" checkbox turns it on and off |
 
 ## Controls
 
 Play or pause the growth, scrub with the slider, tap a dot to trace its line back to 2, search for a
-prime (up to 1,048,576), set the upper limit, drag to rotate the tree on both axes, pinch or scroll to zoom, and shift-drag to pan when zoomed in. Each
+prime (up to 2,097,152), set the upper limit, fill in the feathers, go full screen, drag to rotate the tree on both axes, pinch or scroll to zoom, and shift-drag to pan when zoomed in. Each
 generation is its own layer. A double-click or the reset button restores the starting view. Visitors who prefer reduced motion see the finished tree without the animation.
 
 ## Notes
 
 - Fonts come from Google Fonts (Playfair Display and Outfit). If they are blocked, the page falls back to
   system fonts. To self-host them, replace the two `fonts.googleapis.com` links in `index.html`.
-- Everything is computed in the browser. Building the tree takes milliseconds, even at its 1,048,576 limit.
-- The tree is drawn up to 1,048,576. Past that, web workers run a segmented sieve upward, keeping an exact
+- Everything is computed in the browser. Building the tree takes milliseconds, even at its 2,097,152 limit.
+- The tree is drawn up to 2,097,152. Past that, web workers run a segmented sieve upward, keeping an exact
   count and the largest prime rather than a list, so memory stays flat. It uses every CPU core but one,
   and needs the page served over http rather than opened as a file.
 - Counting covers about 10¹⁰ numbers a second on an 18-core M5 Pro, but the top limit would still take
