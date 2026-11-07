@@ -20,7 +20,7 @@
   var DIM = 0.22;                       /* opacity of primes outside a root=p filter */
   var FAN_MIN = 3;                      /* fewest children that make a feather worth filling */
   var FAN_FILL = 0.3;                   /* opacity of a filled feather */
-  var TREE_MAX = 1 << 21;               /* largest tree worth drawing; above this, workers count instead */
+  var TREE_MAX = 5000000;               /* largest tree worth drawing; above this, workers count instead */
   var ANIMATE_MAX = 1 << 16;            /* bigger trees appear finished rather than growing */
   var MAX_BOUND = BigInt('1223334444555554444333221');
   var SAFE_MAX = Number.MAX_SAFE_INTEGER;   /* the workers' sieve stops here */
@@ -123,7 +123,7 @@
   var bound = BigInt(8192);                      /* the visitor's upper limit; T stops at TREE_MAX */
   var near = null;                               /* { v, lo, hi }: a non-prime search and the primes either side */
   var rootP = 0, rootKids = null, marked = null; /* root=p filter: its children, and a per-prime "stay bright" flag */
-  var genSel = null;                             /* highlighted generations as { g: 1 }; null means all */
+  var genSel = null;                             /* generations on show as { g: 1 }; null means all */
   var fillFans = true;                           /* shade the sheet between each parent's children */
   var frameReq = 0;
   var theme = 'dark', col = RAMPS.dark, ink = '#eef1f6', paper = '#0a1424', muted = '#7d8aa1', line = 'rgba(255,255,255,.09)', line2 = 'rgba(255,255,255,.16)';
@@ -165,11 +165,12 @@
     all.type = 'button'; all.dataset.g = 'all'; all.textContent = 'All';
     all.setAttribute('aria-label', 'All generations');
     ui.legend.appendChild(all);
-    /* a smaller tree may not reach every highlighted generation */
+    /* a smaller tree may not reach every chosen generation */
     if (genSel) { for (g in genSel) if (g > T.maxGen) delete genSel[g]; settleGens(); }
     syncLegend();
   }
 
+  function genHidden(g) { return genSel && !genSel[g]; }
   function genList() { return Object.keys(genSel).map(Number).sort(function (a, b) { return a - b; }); }
   /* none picked, or every one picked, is the same as all */
   function settleGens() { if (genSel) { var c = genList().length; if (!c || c === T.maxGen) genSel = null; } }
@@ -307,11 +308,12 @@
     }
     /* the rim of each generation's layer, once it has a prime in it */
     for (g = 1; g <= T.maxGen; g++) {
+      if (genHidden(g)) continue;
       var list = T.byGen[g], top = 0;
       for (k = 0; k < list.length && list[k] < m; k++) top = Math.max(top, T.lg[list[k]]);
       if (!top) continue;
       ctx.beginPath(); addCircle(top * unit, layerZ(g));
-      ctx.strokeStyle = genColor(g); ctx.globalAlpha = (genSel && !genSel[g] ? 0.08 : 0.28) * fog(g); ctx.stroke();
+      ctx.strokeStyle = genColor(g); ctx.globalAlpha = 0.28 * fog(g); ctx.stroke();
       ctx.globalAlpha = 1;
     }
   }
@@ -319,11 +321,9 @@
   function drawLayer(g, m) {
     var list = T.byGen[g], f = fog(g), big = T.exp >= 16, width = (big ? 0.5 : 0.7) * Math.pow(s, 0.3), i, k, r;
     var c = genColor(g);
-    var off = genSel && !genSel[g], lit = off ? null : marked, dim = off || marked;   /* off: outside the highlighted generations */
-    var fade = off && T.exp >= 18 ? 0.2 : 1;     /* on a dense tree, thousands of faint edges add back up to full color */
 
     if (fillFans && T.fans[g]) {
-      ctx.fillStyle = c; ctx.globalAlpha = (dim ? DIM * 0.5 : FAN_FILL) * f * fade;
+      ctx.fillStyle = c; ctx.globalAlpha = (marked ? DIM * 0.5 : FAN_FILL) * f;
       for (k = 0; k < T.fans[g].length; k++) {
         ctx.beginPath();
         if (addFan(T.fans[g][k], m)) ctx.fill();
@@ -331,20 +331,20 @@
     }
 
     ctx.beginPath();
-    for (k = 0; k < list.length && (i = list[k]) < m; k++) if (!(lit && lit[i])) addEdge(i);
+    for (k = 0; k < list.length && (i = list[k]) < m; k++) if (!(marked && marked[i])) addEdge(i);
     ctx.strokeStyle = c; ctx.lineWidth = width;
-    ctx.globalAlpha = (dim ? DIM * 0.5 : big ? 0.45 : 0.55) * f * fade;
+    ctx.globalAlpha = (marked ? DIM * 0.5 : big ? 0.45 : 0.55) * f;
     ctx.stroke();
 
     ctx.beginPath();
-    for (k = 0; k < list.length && (i = list[k]) < m; k++) if (!isBig(i) && !(lit && lit[i])) {
+    for (k = 0; k < list.length && (i = list[k]) < m; k++) if (!isBig(i) && !(marked && marked[i])) {
       r = dotSize(i); ctx.moveTo(SX[i] + r, SY[i]); ctx.arc(SX[i], SY[i], r, 0, TAU);
     }
-    ctx.fillStyle = c; ctx.globalAlpha = (dim ? DIM : 1) * f * fade; ctx.fill();
+    ctx.fillStyle = c; ctx.globalAlpha = (marked ? DIM : 1) * f; ctx.fill();
     ctx.globalAlpha = 1;
 
-    if (!lit) return;
-    for (k = 0; k < list.length && (i = list[k]) < m; k++) if (lit[i]) {
+    if (!marked) return;
+    for (k = 0; k < list.length && (i = list[k]) < m; k++) if (marked[i]) {
       ctx.beginPath(); addEdge(i); ctx.lineWidth = width * 2; ctx.strokeStyle = c; ctx.stroke();
       if (isBig(i)) continue;
       r = dotSize(i) + 1;
@@ -355,7 +355,7 @@
 
   function draw(ts) {
     if (!W) return;
-    var m = upto(L), i, k, g, pass;
+    var m = upto(L), i, k, g;
     setAngles();
     for (i = 0; i < m; i++) { view(WX[i], WY[i], WZ[i]); SX[i] = outX; SY[i] = outY; SP[i] = outP; }
 
@@ -365,10 +365,10 @@
 
     cnt.fill(0);
     for (i = 1; i < m; i++) cnt[T.par[i]]++;
-    /* painter's order: the layer farthest from the viewer first, with highlighted generations over the rest */
-    for (pass = genSel ? 0 : 1; pass < 2; pass++) for (k = 1; k <= T.maxGen; k++) {
+    /* painter's order: the layer farthest from the viewer first */
+    for (k = 1; k <= T.maxGen; k++) {
       g = cosT >= 0 ? k : T.maxGen + 1 - k;
-      if (!genSel || !!genSel[g] === !!pass) drawLayer(g, m);
+      if (!genHidden(g)) drawLayer(g, m);
     }
 
     if (L < T.exp) {
@@ -383,13 +383,13 @@
     var f = picked ? sel : m >= T.n ? T.deep : shown;
     var listing = marked !== null && !pair && !picked;   /* the filter speaks for the panel; skip the auto line */
     if (pair) { trace(near.lo); trace(near.hi); }
-    else if (f > 0 && !listing) trace(f);
+    else if (f > 0 && !listing && (picked || !genSel)) trace(f);   /* the automatic line would cross hidden generations */
 
     /* labelled discs for 2, 3, 5, 17 */
-    for (i = 0; i < Math.min(m, 8); i++) if (isBig(i)) {
+    for (i = 0; i < Math.min(m, 8); i++) if (isBig(i) && !(i && genHidden(T.gen[i]))) {
       ctx.beginPath(); ctx.arc(SX[i], SY[i], dotSize(i), 0, TAU);
       ctx.fillStyle = i ? col[0] : ink;
-      ctx.globalAlpha = i && ((marked && !marked[i]) || (genSel && !genSel[T.gen[i]])) ? DIM : 1; ctx.fill();
+      ctx.globalAlpha = marked && i && !marked[i] ? DIM : 1; ctx.fill();
       ctx.globalAlpha = 1;
       var scale = Math.sqrt(s) * SP[i] / fit;
       ctx.font = '500 ' + ((i ? 11 : 12) * scale) + 'px ' + font;
@@ -611,6 +611,7 @@
   function pick(p) {
     var m = upto(L), best = -1, bd = 22 * 22;
     for (var i = 0; i < m; i++) {
+      if (i && genHidden(T.gen[i])) continue;
       var dx = SX[i] - p.x, dy = SY[i] - p.y, d = dx * dx + dy * dy;
       if (d < bd) { bd = d; best = i; }
     }
