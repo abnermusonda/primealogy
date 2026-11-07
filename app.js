@@ -123,6 +123,7 @@
   var bound = BigInt(8192);                      /* the visitor's upper limit; T stops at TREE_MAX */
   var near = null;                               /* { v, lo, hi }: a non-prime search and the primes either side */
   var rootP = 0, rootKids = null, marked = null; /* root=p filter: its children, and a per-prime "stay bright" flag */
+  var genSel = null;                             /* highlighted generations as { g: 1 }; null means all */
   var fillFans = true;                           /* shade the sheet between each parent's children */
   var frameReq = 0;
   var theme = 'dark', col = RAMPS.dark, ink = '#eef1f6', paper = '#0a1424', muted = '#7d8aa1', line = 'rgba(255,255,255,.09)', line2 = 'rgba(255,255,255,.16)';
@@ -153,11 +154,37 @@
     if (!T) return;
     ui.legend.textContent = '';
     for (var g = 1; g <= T.maxGen; g++) {
-      var sp = document.createElement('span'), sw = document.createElement('i');
+      var b = document.createElement('button'), sw = document.createElement('i');
+      b.type = 'button'; b.dataset.g = g;
+      b.setAttribute('aria-label', 'Generation ' + g);
       sw.style.background = genColor(g);
-      sp.appendChild(sw); sp.appendChild(document.createTextNode(String(g)));
-      ui.legend.appendChild(sp);
+      b.appendChild(sw); b.appendChild(document.createTextNode(String(g)));
+      ui.legend.appendChild(b);
     }
+    var all = document.createElement('button');
+    all.type = 'button'; all.dataset.g = 'all'; all.textContent = 'All';
+    all.setAttribute('aria-label', 'All generations');
+    ui.legend.appendChild(all);
+    /* a smaller tree may not reach every highlighted generation */
+    if (genSel) { for (g in genSel) if (g > T.maxGen) delete genSel[g]; settleGens(); }
+    syncLegend();
+  }
+
+  function genList() { return Object.keys(genSel).map(Number).sort(function (a, b) { return a - b; }); }
+  /* none picked, or every one picked, is the same as all */
+  function settleGens() { if (genSel) { var c = genList().length; if (!c || c === T.maxGen) genSel = null; } }
+  function syncLegend() {
+    ui.legend.classList.toggle('filtered', !!genSel);
+    Array.prototype.forEach.call(ui.legend.children, function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.g === 'all' ? !genSel : !!(genSel && genSel[b.dataset.g])));
+    });
+  }
+  function parseGens(text) {
+    var out = null;
+    (text || '').split(',').forEach(function (t) {
+      if (/^[1-9]\d?$/.test(t)) { out = out || {}; out[+t] = 1; }
+    });
+    return out;
   }
 
   /* ---------- geometry ---------- */
@@ -284,7 +311,7 @@
       for (k = 0; k < list.length && list[k] < m; k++) top = Math.max(top, T.lg[list[k]]);
       if (!top) continue;
       ctx.beginPath(); addCircle(top * unit, layerZ(g));
-      ctx.strokeStyle = genColor(g); ctx.globalAlpha = 0.28 * fog(g); ctx.stroke();
+      ctx.strokeStyle = genColor(g); ctx.globalAlpha = (genSel && !genSel[g] ? 0.08 : 0.28) * fog(g); ctx.stroke();
       ctx.globalAlpha = 1;
     }
   }
@@ -292,9 +319,11 @@
   function drawLayer(g, m) {
     var list = T.byGen[g], f = fog(g), big = T.exp >= 16, width = (big ? 0.5 : 0.7) * Math.pow(s, 0.3), i, k, r;
     var c = genColor(g);
+    var off = genSel && !genSel[g], lit = off ? null : marked, dim = off || marked;   /* off: outside the highlighted generations */
+    var fade = off && T.exp >= 18 ? 0.2 : 1;     /* on a dense tree, thousands of faint edges add back up to full color */
 
     if (fillFans && T.fans[g]) {
-      ctx.fillStyle = c; ctx.globalAlpha = (marked ? DIM * 0.5 : FAN_FILL) * f;
+      ctx.fillStyle = c; ctx.globalAlpha = (dim ? DIM * 0.5 : FAN_FILL) * f * fade;
       for (k = 0; k < T.fans[g].length; k++) {
         ctx.beginPath();
         if (addFan(T.fans[g][k], m)) ctx.fill();
@@ -302,20 +331,20 @@
     }
 
     ctx.beginPath();
-    for (k = 0; k < list.length && (i = list[k]) < m; k++) if (!(marked && marked[i])) addEdge(i);
+    for (k = 0; k < list.length && (i = list[k]) < m; k++) if (!(lit && lit[i])) addEdge(i);
     ctx.strokeStyle = c; ctx.lineWidth = width;
-    ctx.globalAlpha = (marked ? DIM * 0.5 : big ? 0.45 : 0.55) * f;
+    ctx.globalAlpha = (dim ? DIM * 0.5 : big ? 0.45 : 0.55) * f * fade;
     ctx.stroke();
 
     ctx.beginPath();
-    for (k = 0; k < list.length && (i = list[k]) < m; k++) if (!isBig(i) && !(marked && marked[i])) {
+    for (k = 0; k < list.length && (i = list[k]) < m; k++) if (!isBig(i) && !(lit && lit[i])) {
       r = dotSize(i); ctx.moveTo(SX[i] + r, SY[i]); ctx.arc(SX[i], SY[i], r, 0, TAU);
     }
-    ctx.fillStyle = c; ctx.globalAlpha = (marked ? DIM : 1) * f; ctx.fill();
+    ctx.fillStyle = c; ctx.globalAlpha = (dim ? DIM : 1) * f * fade; ctx.fill();
     ctx.globalAlpha = 1;
 
-    if (!marked) return;
-    for (k = 0; k < list.length && (i = list[k]) < m; k++) if (marked[i]) {
+    if (!lit) return;
+    for (k = 0; k < list.length && (i = list[k]) < m; k++) if (lit[i]) {
       ctx.beginPath(); addEdge(i); ctx.lineWidth = width * 2; ctx.strokeStyle = c; ctx.stroke();
       if (isBig(i)) continue;
       r = dotSize(i) + 1;
@@ -326,7 +355,7 @@
 
   function draw(ts) {
     if (!W) return;
-    var m = upto(L), i, k, g;
+    var m = upto(L), i, k, g, pass;
     setAngles();
     for (i = 0; i < m; i++) { view(WX[i], WY[i], WZ[i]); SX[i] = outX; SY[i] = outY; SP[i] = outP; }
 
@@ -336,8 +365,11 @@
 
     cnt.fill(0);
     for (i = 1; i < m; i++) cnt[T.par[i]]++;
-    /* painter's order: the layer farthest from the viewer first */
-    for (k = 1; k <= T.maxGen; k++) drawLayer(cosT >= 0 ? k : T.maxGen + 1 - k, m);
+    /* painter's order: the layer farthest from the viewer first, with highlighted generations over the rest */
+    for (pass = genSel ? 0 : 1; pass < 2; pass++) for (k = 1; k <= T.maxGen; k++) {
+      g = cosT >= 0 ? k : T.maxGen + 1 - k;
+      if (!genSel || !!genSel[g] === !!pass) drawLayer(g, m);
+    }
 
     if (L < T.exp) {
       ctx.beginPath(); addCircle(L * unit, layerZ(0));
@@ -357,7 +389,7 @@
     for (i = 0; i < Math.min(m, 8); i++) if (isBig(i)) {
       ctx.beginPath(); ctx.arc(SX[i], SY[i], dotSize(i), 0, TAU);
       ctx.fillStyle = i ? col[0] : ink;
-      ctx.globalAlpha = marked && i && !marked[i] ? DIM : 1; ctx.fill();
+      ctx.globalAlpha = i && ((marked && !marked[i]) || (genSel && !genSel[T.gen[i]])) ? DIM : 1; ctx.fill();
       ctx.globalAlpha = 1;
       var scale = Math.sqrt(s) * SP[i] / fit;
       ctx.font = '500 ' + ((i ? 11 : 12) * scale) + 'px ' + font;
@@ -611,6 +643,17 @@
     if (rootP) { sel = -1; clearNear(); }        /* a selection would hide the list in the panel */
     applyRoot(); writeHash(); schedule();
   });
+  ui.legend.addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.g === 'all') genSel = null;
+    else {
+      genSel = genSel || {};
+      if (genSel[b.dataset.g]) delete genSel[b.dataset.g]; else genSel[b.dataset.g] = 1;
+      settleGens();
+    }
+    syncLegend(); writeHash(); schedule();
+  });
   ui.fillToggle.addEventListener('change', function () { fillFans = ui.fillToggle.checked; writeHash(); schedule(); });
   ui.q.addEventListener('input', function () { ui.qerr.textContent = ''; });
 
@@ -861,6 +904,7 @@
 
   function writeHash() {
     var h = 'max=' + bound + (near ? '&p=' + near.v : sel >= 0 ? '&p=' + T.P[sel] : '') + (rootP ? '&root=' + rootP : params.get('root') ? '&root=0' : '') +   /* root=0 outranks a ?root= in the query */
+      (genSel ? '&gen=' + genList().join(',') : params.get('gen') ? '&gen=all' : '') +
       (!fillFans ? '&fill=0' : params.get('fill') === '0' ? '&fill=1' : '');   /* likewise for fill=0 in the query */
     try { window.history.replaceState(null, '', '#' + h); } catch (e) { /* sandboxed */ }
   }
@@ -881,6 +925,7 @@
 
   rootP = +(hp.get('root') || params.get('root') || 0);
   fillFans = (hp.get('fill') || params.get('fill')) !== '0';
+  genSel = parseGens(hp.get('gen') || params.get('gen'));
 
   bound = startBound;
   T = build(bound > BigInt(TREE_MAX) ? TREE_MAX : Number(bound)); cnt = new Uint32Array(T.n);

@@ -73,8 +73,10 @@ input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
 .err:not(:empty) { margin-top: 6px; }
 .err.note { color: var(--ink-2); }
 select { width: 100%; background: var(--bg); border: 1px solid var(--line-2); border-radius: 8px; padding: 6px 10px; min-height: 40px; }
-.legend { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 13px; color: var(--ink-2); }
-.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px; font-size: 13px; color: var(--ink-2); }
+.legend button { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; padding: 2px 8px; border-color: var(--line); font-size: 13px; color: var(--ink-2); }
+.legend button[aria-pressed="true"] { border-color: var(--accent); color: var(--ink); }
+.legend.filtered button[aria-pressed="false"] { opacity: 0.55; }
 .legend i { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
 .run { white-space: pre-line; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .run:empty { display: none; }
