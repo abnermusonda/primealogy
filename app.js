@@ -37,8 +37,11 @@
     chainLabel: $('chainLabel'), chain: $('chain'), detail: $('detail'), find: $('find'), q: $('q'), qerr: $('qerr'),
     rootToggle: $('rootToggle'), boundForm: $('boundForm'), bound: $('bound'), bounderr: $('bounderr'),
     runBar: $('runBar'), runStatus: $('runStatus'), stop: $('stop'), stats: $('stats'), legend: $('legend'), theme: $('theme'),
-    fillToggle: $('fillToggle'), ringToggle: $('ringToggle'), zin: $('zin'), zout: $('zout'), zreset: $('zreset'), zfull: $('zfull')
+    fillToggle: $('fillToggle'), ringToggle: $('ringToggle'), zin: $('zin'), zout: $('zout'), zreset: $('zreset'), zfull: $('zfull'),
+    piToggle: $('piToggle'), waveToggle: $('waveToggle'), gapToggle: $('gapToggle'), zeroRow: $('zeroRow'), zeros: $('zeros'), zeroOut: $('zeroOut'),
+    chartWrap: $('chartWrap'), chartKey: $('chartKey'), chart: $('pichart')
   };
+  var cctx = ui.chart.getContext('2d');
 
   var store = {
     get: function (k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } },
@@ -126,6 +129,7 @@
   var genSel = null;                             /* generations on show as { g: 1 }; null means all */
   var ringsByValue = false;                      /* ring radius follows a generation's largest prime itself, not its log */
   var fillFans = true;                           /* shade the sheet between each parent's children */
+  var piChart = false, waves = false, gapView = false, zeroCount = 50;   /* the π(x) chart, Riemann's waves, and π(x) − Li(x) */
   var frameReq = 0;
   var theme = 'dark', col = RAMPS.dark, ink = '#eef1f6', paper = '#0a1424', muted = '#7d8aa1', line = 'rgba(255,255,255,.09)', line2 = 'rgba(255,255,255,.16)';
   var font = 'Outfit, system-ui, sans-serif';
@@ -146,6 +150,7 @@
     var meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', cssVar('--bg', '#0a1424'));
     buildLegend();
+    ui.chartKey._t = '';
     schedule();
   }
 
@@ -217,6 +222,7 @@
     stride = (edgeSegs + 1) * 3;
     E = new Float32Array(T.n * stride);
     for (i = 1; i < T.n; i++) buildEdge(i);
+    if (piChart) layoutChart();
     clampView(); schedule();
   }
 
@@ -405,6 +411,7 @@
     else describe(f, picked, m);
     put(ui.upto, 'up to ' + fmt(Math.min(T.N, Math.floor(Math.pow(2, L) + 1e-6))));
     put(ui.count, fmt(m) + (m === 1 ? ' prime' : ' primes'));
+    drawChart(ts);
   }
 
   /* one line of descent, from prime f back to 2 */
@@ -494,6 +501,265 @@
     if (ui.detail._t === text) return;
     ui.detail._t = text; ui.detail.textContent = '';
     text.split('\n').forEach(function (t) { var d = document.createElement('div'); d.textContent = t; ui.detail.appendChild(d); });
+  }
+
+  /* ---------- π(x), Li(x) and Riemann's waves ---------- */
+
+  /* li(x) = ∫₀ˣ dt / ln t (principal value), by Ramanujan's series */
+  function li(x) {
+    var L = Math.log(x), s = 0, term = 1, inner = 0;
+    for (var n = 1; n < 200; n++) {
+      term *= L / n;
+      if (n % 2) inner += 1 / n;
+      var d = (n % 2 ? 1 : -1) * term / Math.pow(2, n - 1) * inner;
+      s += d;
+      if (Math.abs(d) < 1e-16 * Math.abs(s)) break;
+    }
+    return 0.5772156649015329 + Math.log(L) + Math.sqrt(x) * s;
+  }
+  var LI2 = li(2);
+  function Li(x) { return li(x) - LI2; }     /* the offset form, ∫₂ˣ dt / ln t */
+
+  /* Riemann's R(x) = Σ μ(n)/n · li(x^(1/n)), summed as Gram's series, which needs ζ(k) */
+  var ZETA = [];
+  (function () {
+    for (var k = 2; k < 130; k++) {
+      var z = 0, n;
+      for (n = 1; n <= 60; n++) z += Math.pow(n, -k);
+      ZETA[k] = z + Math.pow(60, 1 - k) / (k - 1) - 0.5 * Math.pow(60, -k);
+    }
+  })();
+  function riemannR(x) {
+    var L = Math.log(x), s = 1, t = 1;
+    for (var k = 1; k < 128; k++) {
+      t *= L / k;
+      var d = t / (k * ZETA[k + 1]);
+      s += d;
+      if (d < 1e-16 * s) break;
+    }
+    return s;
+  }
+  var MU = [0, 1, -1, -1, 0, -1, 1, -1, 0, 0, 1, -1, 0, -1, 1, 1, 0, -1, 0, -1, 0, 1, 1, -1, 0, 0, 1, 0, 0, -1, -1, -1, 0, 1, 1, 1, 0, -1, 1, 1, 0, -1, -1, -1, 0, 0, 1, -1, 0, 0, 0, 1, 0, -1, 0, 1, 0, 1, 1, -1, 0, -1, 1, 0, 0];
+
+  /* Heights of the zeta zeros ½ + iγ. The first ten are exact to 9 places; the rest come from the
+     Riemann–Siegel formula, found as sign changes of Z(t), good to about 0.001 */
+  var ZERO_MAX = 200, zetaZeros = null;
+  function rsTheta(t) { return t / 2 * Math.log(t / TAU) - t / 2 - Math.PI / 8 + 1 / (48 * t) + 7 / (5760 * t * t * t); }
+  function rsZ(t) {
+    var a = Math.sqrt(t / TAU), N = Math.floor(a), p = a - N, th = rsTheta(t), s = 0;
+    for (var n = 1; n <= N; n++) s += Math.cos(th - t * Math.log(n)) / Math.sqrt(n);
+    var c = Math.cos(TAU * p);
+    if (Math.abs(c) < 1e-9) { p += 1e-9; c = Math.cos(TAU * p); }
+    return 2 * s + (N % 2 ? 1 : -1) * Math.pow(a, -0.5) * Math.cos(TAU * (p * p - p - 1 / 16)) / c;
+  }
+  function getZeros() {
+    if (zetaZeros) return zetaZeros;
+    var out = [14.134725142, 21.022039639, 25.010857580, 30.424876126, 32.935061588,
+               37.586178159, 40.918719012, 43.327073281, 48.005150881, 49.773832478];
+    var t = 50.5, h = 0.02, z0 = rsZ(t);
+    while (out.length < ZERO_MAX) {
+      var t1 = t + h, z1 = rsZ(t1);
+      if ((z0 < 0) !== (z1 < 0)) {
+        var lo = t, hi = t1, zl = z0;
+        for (var i = 0; i < 40; i++) { var m = (lo + hi) / 2, zm = rsZ(m); if ((zm < 0) === (zl < 0)) { lo = m; zl = zm; } else hi = m; }
+        out.push((lo + hi) / 2);
+      }
+      t = t1; z0 = z1;
+    }
+    return (zetaZeros = out);
+  }
+
+  /* one zero and its mirror image together: 2·Re Li(x^ρ) with ρ = ½ + iγ and u = ln x,
+     from the asymptotic series e^z/z · Σ k!/z^k, which is sharp here because |z| > 9 */
+  function wavePair(u, g) {
+    var a = u / 2, b = g * u, e = Math.exp(a), cr = e * Math.cos(b), ci = e * Math.sin(b);
+    var d = a * a + b * b, ir = a / d, ii = -b / d;
+    var sr = 1, si = 0, tr = 1, ti = 0;
+    for (var k = 1; k < 40; k++) {
+      var nr = (tr * ir - ti * ii) * k, ni = (tr * ii + ti * ir) * k;
+      if (nr * nr + ni * ni > tr * tr + ti * ti) break;     /* the series has started to diverge */
+      tr = nr; ti = ni; sr += tr; si += ti;
+      if (tr * tr + ti * ti < 1e-14) break;
+    }
+    var pr = cr * ir - ci * ii, pi = cr * ii + ci * ir;
+    return 2 * (pr * sr - pi * si);
+  }
+
+  /* Riemann's explicit formula for π(x), cut off after the first K zeros:
+     π(x) = R(x) − Σ_ρ R(x^ρ) − 1/ln x + arctan(π / ln x)/π */
+  function explicitPi(x, K) {
+    var L = Math.log(x), v = riemannR(x) - 1 / L + Math.atan(Math.PI / L) / Math.PI, zs = getZeros();
+    for (var n = 1; n < MU.length; n++) {
+      var u = L / n;
+      if (u < Math.LN2) break;                     /* x^(1/n) below 2 adds next to nothing */
+      if (!MU[n]) continue;
+      var s = 0;
+      for (var k = 0; k < K; k++) s += wavePair(u, zs[k]);
+      v -= MU[n] / n * s;
+    }
+    return v;
+  }
+
+  function piAt(x) {                                /* primes ≤ x, from the tree's list */
+    var lo = 0, hi = T.n;
+    while (lo < hi) { var m = (lo + hi) >> 1; if (T.P[m] <= x) lo = m + 1; else hi = m; }
+    return lo;
+  }
+
+  var CW = 0, CH = 0, chartAt = 0, waveCache = { key: '' };
+  var compact = window.Intl && Intl.NumberFormat ? new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }) : null;
+  function fmtAxis(v) { return v < 10000 || !compact ? fmt(v) : compact.format(v); }
+  function niceStep(span, count) {
+    var raw = span / count, p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p;
+    return (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * p;
+  }
+  function signed(v) { return (v < 0 ? '−' : '') + Math.abs(v).toFixed(1); }
+  function waveColor() { return theme === 'dark' ? '#85B7EB' : '#378ADD'; }
+
+  function layoutChart() {
+    var w = ui.chart.clientWidth;
+    if (!w) return;
+    CW = w; CH = Math.round(w * 5 / 12);
+    ui.chart.width = Math.round(CW * dpr); ui.chart.height = Math.round(CH * dpr);
+    waveCache.key = '';
+  }
+
+  function showChart() {
+    ui.chartWrap.hidden = !piChart;
+    ui.zeroRow.hidden = !waves;
+    fsHost.classList.toggle('charted', piChart);
+    ui.piToggle.checked = piChart; ui.waveToggle.checked = waves; ui.gapToggle.checked = gapView;
+    ui.zeros.value = zeroCount; ui.zeroOut.value = ui.zeroOut.textContent = zeroCount;
+    if (piChart) layoutChart();
+    schedule();
+  }
+
+  /* samples of the explicit formula, reused until the range, zero count or width changes */
+  function waveSamples(X, K, cols) {
+    var key = X + '|' + K + '|' + cols;
+    if (waveCache.key === key) return waveCache;
+    var xs = new Float64Array(cols + 1), ys = new Float64Array(cols + 1), top = 0;
+    for (var c = 0; c <= cols; c++) {
+      var x = 2 + (X - 2) * c / cols, y = explicitPi(x, K);
+      xs[c] = x; ys[c] = y; if (y > top) top = y;
+    }
+    return (waveCache = { key: key, xs: xs, ys: ys, top: top });
+  }
+
+  function drawChart(ts) {
+    if (!piChart || !CW) return;
+    /* the waves cost a few ms per redraw, so while growing they update about ten times a second */
+    if (waves && playing && ts - chartAt < 100) return;
+    chartAt = ts;
+    var X = Math.max(Math.min(T.N, 16), Math.min(T.N, Math.floor(Math.pow(2, L) + 1e-6)));
+    var padL = 46, padR = 10, padT = 8, padB = 22, pw = CW - padL - padR, ph = CH - padT - padB;
+    var count = piAt(X), smooth = Li(X), w = waves ? waveSamples(X, zeroCount, Math.round(pw * (playing ? 1 : 2))) : null;
+    var accent = cssVar('--accent', '#d4a84b'), c = cctx, k, x, y, step, xa, xb;
+    var sx = [], sy = [], wy = null, env = [];     /* staircase and waves as points, in the units being shown */
+    var val = gapView ? function (x, y) { return y - Li(x); } : function (x, y) { return y; };
+
+    /* the staircase: every step when they fit; otherwise each pixel column spans the counts inside it */
+    sx.push(0); sy.push(0);
+    if (count <= pw) {
+      for (k = 0; k < count; k++) { x = T.P[k]; sx.push(x, x); sy.push(val(x, k), val(x, k + 1)); }
+      sx.push(X); sy.push(val(X, count));
+    } else {
+      for (k = 1, xa = 2; k <= pw; k++, xa = xb) {
+        xb = X * k / pw;
+        if (gapView) {                         /* the gap's low and high inside the column, from a few samples */
+          var gl = Infinity, gh = -Infinity;
+          for (var q = 1; q <= 6; q++) { x = xa + (xb - xa) * q / 6; y = piAt(x) - Li(x); if (y < gl) gl = y; if (y > gh) gh = y; }
+          sx.push(xb, xb); sy.push(gl, gh);
+        }
+        else { sx.push(xb); sy.push(piAt(xb)); }
+      }
+    }
+    if (w) { wy = new Float64Array(w.ys.length); for (k = 0; k < wy.length; k++) wy[k] = val(w.xs[k], w.ys[k]); }
+    /* Schoenfeld: if the Riemann Hypothesis holds, |π(x) − li(x)| < √x · ln x / 8π from x = 2657 on */
+    if (gapView && X > 2657) for (k = 0; k <= pw; k++) { x = 2657 + (X - 2657) * k / pw; if (x >= 2657) env.push(x); }
+
+    var lo = 0, hi = 1, grow = function (v) { if (v < lo) lo = v; if (v > hi) hi = v; };
+    sy.forEach(grow); if (wy) wy.forEach(grow);
+    if (gapView) { hi = Math.max(hi, 1); lo = Math.min(lo, -1); if (env.length) { grow(Math.sqrt(X) * Math.log(X) / (8 * Math.PI)); grow(-Math.sqrt(X) * Math.log(X) / (8 * Math.PI)); } }
+    else grow(smooth);
+    var pad = (hi - lo) * 0.06; hi += pad; if (gapView) lo -= pad;
+    var px = function (x) { return padL + x / X * pw; }, py = function (y) { return padT + (hi - y) / (hi - lo) * ph; };
+
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.clearRect(0, 0, CW, CH);
+    c.font = '11px ' + font; c.lineWidth = 1;
+
+    /* grid and axes */
+    c.fillStyle = muted;
+    step = niceStep(X, Math.max(2, Math.floor(pw / 90)));
+    c.textAlign = 'center'; c.textBaseline = 'top';
+    for (x = step; x <= X; x += step) {
+      c.beginPath(); c.moveTo(px(x), padT); c.lineTo(px(x), padT + ph); c.strokeStyle = line; c.stroke();
+      c.fillText(fmtAxis(x), px(x), padT + ph + 6);
+    }
+    step = Math.max(1, niceStep(hi - lo, Math.max(2, Math.floor(ph / 40))));
+    c.textAlign = 'right'; c.textBaseline = 'middle';
+    for (y = Math.ceil(lo / step) * step; y <= hi; y += step) {
+      c.beginPath(); c.moveTo(padL, py(y)); c.lineTo(padL + pw, py(y)); c.strokeStyle = y ? line : line2; c.stroke();
+      c.fillText((y < 0 ? '−' : '') + fmtAxis(Math.abs(y)), padL - 8, py(y));
+    }
+
+    c.save();
+    c.beginPath(); c.rect(padL, padT - 2, pw + 2, ph + 4); c.clip();
+    c.lineJoin = 'round';
+
+    /* Li(x): a curve, or in the gap view the zero line itself */
+    c.beginPath();
+    if (gapView) { c.moveTo(px(2), py(0)); c.lineTo(px(X), py(0)); }
+    else for (k = 0; k <= pw; k++) { x = 2 + (X - 2) * k / pw; if (k) c.lineTo(px(x), py(Li(x))); else c.moveTo(px(x), py(0)); }
+    c.strokeStyle = accent; c.lineWidth = 1.6; c.setLineDash([5, 4]); c.stroke();
+
+    if (env.length) {
+      [1, -1].forEach(function (sign) {
+        c.beginPath();
+        env.forEach(function (x, i) { var e = sign * Math.sqrt(x) * Math.log(x) / (8 * Math.PI); if (i) c.lineTo(px(x), py(e)); else c.moveTo(px(x), py(e)); });
+        c.strokeStyle = muted; c.lineWidth = 1; c.setLineDash([2, 3]); c.stroke();
+      });
+    }
+    c.setLineDash([]);
+
+    /* Riemann's waves go under the staircase, wide enough to show where the two agree. In the gap
+       view the true error is a jagged band a few primes tall, so there the waves go on top. */
+    var stairs = function () {
+      c.beginPath();
+      for (k = 0; k < sx.length; k++) { if (k) c.lineTo(px(sx[k]), py(sy[k])); else c.moveTo(px(sx[k]), py(sy[k])); }
+      c.strokeStyle = ink; c.lineWidth = 1.2; c.globalAlpha = gapView && wy ? 0.45 : 1; c.stroke(); c.globalAlpha = 1;
+    };
+    if (gapView) stairs();
+    if (wy) {
+      c.beginPath();
+      for (k = 0; k < wy.length; k++) { if (k) c.lineTo(px(w.xs[k]), py(wy[k])); else c.moveTo(px(w.xs[k]), py(wy[k])); }
+      c.strokeStyle = waveColor(); c.lineWidth = gapView ? 1.8 : 2.4; c.stroke();
+    }
+    if (!gapView) stairs();
+
+    /* the selected prime sits at the top of its own step */
+    if (sel > 0 && T.P[sel] <= X) {
+      c.beginPath(); c.arc(px(T.P[sel]), py(val(T.P[sel], sel + 1)), 4, 0, TAU);
+      c.fillStyle = genColor(T.gen[sel]); c.fill(); c.strokeStyle = ink; c.lineWidth = 1.2; c.stroke();
+    }
+    c.restore();
+
+    var items = [[ink, '', gapView ? 'π(x) − Li(x) at ' + fmt(X) + ': ' + signed(count - smooth) : 'π(' + fmt(X) + ') = ' + fmt(count)],
+                 [accent, 'dash', gapView ? 'Li(x)' : 'Li = ' + fmt(Math.round(smooth))]];
+    if (w) items.push([waveColor(), '', zeroCount + (zeroCount === 1 ? ' zero' : ' zeros') + ': ' +
+                       (gapView ? signed : function (v) { return v.toFixed(1); })(val(X, w.ys[w.ys.length - 1]))]);
+    if (env.length) items.push([muted, 'dot', 'RH bound']);
+    var key = items.map(function (it) { return it[2]; }).join('|');
+    if (ui.chartKey._t !== key) {
+      ui.chartKey._t = key; ui.chartKey.textContent = '';
+      items.forEach(function (it) {
+        var span = document.createElement('span'), sw = document.createElement('i');
+        sw.style.borderColor = it[0]; sw.className = it[1];
+        span.appendChild(sw); span.appendChild(document.createTextNode(it[2]));
+        ui.chartKey.appendChild(span);
+      });
+    }
   }
 
   /* ---------- frame loop ---------- */
@@ -659,6 +925,23 @@
   });
   ui.ringToggle.addEventListener('change', function () { ringsByValue = ui.ringToggle.checked; writeHash(); schedule(); });
   ui.fillToggle.addEventListener('change', function () { fillFans = ui.fillToggle.checked; writeHash(); schedule(); });
+  /* the waves are drawn on the chart, so turning them on brings the chart with them */
+  ui.piToggle.addEventListener('change', function () {
+    piChart = ui.piToggle.checked; if (!piChart) waves = gapView = false;
+    showChart(); writeHash();
+  });
+  ui.waveToggle.addEventListener('change', function () {
+    waves = ui.waveToggle.checked; if (waves) piChart = true;
+    showChart(); writeHash();
+  });
+  ui.gapToggle.addEventListener('change', function () {
+    gapView = ui.gapToggle.checked; if (gapView) piChart = true;
+    showChart(); writeHash();
+  });
+  ui.zeros.addEventListener('input', function () {
+    zeroCount = +ui.zeros.value; ui.zeroOut.value = ui.zeroOut.textContent = zeroCount;
+    writeHash(); schedule();
+  });
   ui.q.addEventListener('input', function () { ui.qerr.textContent = ''; });
 
   ui.find.addEventListener('submit', function (e) {
@@ -910,7 +1193,10 @@
     var h = 'max=' + bound + (near ? '&p=' + near.v : sel >= 0 ? '&p=' + T.P[sel] : '') + (rootP ? '&root=' + rootP : params.get('root') ? '&root=0' : '') +   /* root=0 outranks a ?root= in the query */
       (ringsByValue ? '&rings=value' : params.get('rings') ? '&rings=log' : '') +
       (genSel ? '&gen=' + genList().join(',') : params.get('gen') ? '&gen=all' : '') +
-      (!fillFans ? '&fill=0' : params.get('fill') === '0' ? '&fill=1' : '');   /* likewise for fill=0 in the query */
+      (!fillFans ? '&fill=0' : params.get('fill') === '0' ? '&fill=1' : '') +   /* likewise for fill=0 in the query */
+      (piChart ? '&pi=1' : params.get('pi') ? '&pi=0' : '') +
+      (waves ? '&zeros=' + zeroCount : params.get('zeros') ? '&zeros=0' : '') +
+      (gapView ? '&gap=1' : params.get('gap') ? '&gap=0' : '');
     try { window.history.replaceState(null, '', '#' + h); } catch (e) { /* sandboxed */ }
   }
 
@@ -932,6 +1218,11 @@
   fillFans = (hp.get('fill') || params.get('fill')) !== '0';
   genSel = parseGens(hp.get('gen') || params.get('gen'));
   ringsByValue = (hp.get('rings') || params.get('rings')) === 'value';
+  var startZeros = +(hp.get('zeros') || params.get('zeros') || 0);
+  waves = startZeros >= 1 && startZeros % 1 === 0;
+  if (waves) zeroCount = Math.min(startZeros, ZERO_MAX);
+  gapView = (hp.get('gap') || params.get('gap')) === '1';
+  piChart = waves || gapView || (hp.get('pi') || params.get('pi')) === '1';
 
   bound = startBound;
   T = build(bound > BigInt(TREE_MAX) ? TREE_MAX : Number(bound)); cnt = new Uint32Array(T.n);
@@ -949,6 +1240,7 @@
   if (window.ResizeObserver) new ResizeObserver(layout).observe(stage);
   else window.addEventListener('resize', layout);
   layout();
+  showChart();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { font = getComputedStyle(document.body).fontFamily || font; ui.chain._t = ''; schedule(); });
 
   var startOk = startP >= 2 && startP % 1 === 0 && startP <= TREE_MAX;

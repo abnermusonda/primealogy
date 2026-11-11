@@ -40,6 +40,10 @@
         <input id="grow" type="range" min="0" max="1000" step="1" value="0" aria-label="How far along the primes the tree has grown">
         <div class="readout"><div id="upto" class="strong"></div><div id="count" class="dim"></div></div>
       </div>
+      <figure id="chartWrap" class="chart" hidden>
+        <div id="chartKey" class="chart-key"></div>
+        <canvas id="pichart" role="img" aria-label="The prime-counting staircase π(x) up to the tree's growth front, with the smooth curve Li(x) and, when switched on, Riemann's explicit formula built from the zeros of the zeta function."></canvas>
+      </figure>
     </div>
 
     <aside class="side">
@@ -86,6 +90,28 @@
         <span>Size generation rings by largest prime</span>
       </label>
 
+      <div class="card waves">
+        <label class="check">
+          <input id="piToggle" type="checkbox">
+          <span>Plot π(x) against Li(x)</span>
+        </label>
+        <label class="check">
+          <input id="waveToggle" type="checkbox">
+          <span>Add Riemann’s waves</span>
+        </label>
+        <label class="check">
+          <input id="gapToggle" type="checkbox">
+          <span>Show the gap, π(x) − Li(x)</span>
+        </label>
+        <div id="zeroRow" class="zero-row" hidden>
+          <label class="label" for="zeros">Zeros of ζ(s) used</label>
+          <div class="row">
+            <input id="zeros" type="range" min="1" max="200" step="1" value="50">
+            <output id="zeroOut" for="zeros">50</output>
+          </div>
+        </div>
+      </div>
+
       <div class="card">
         <div class="label">Generations from 2</div>
         <div id="legend" class="legend"></div>
@@ -104,6 +130,8 @@
       <li><strong>Height.</strong> Each generation is its own layer, so a prime sits one level above its parent.</li>
       <li><strong>Color.</strong> How many steps the prime is from 2. The deepest lines end in chains where each prime is double the last, plus one.</li>
       <li><strong>Feathers.</strong> A prime's children are laid out in order of size, so the edges fan out into a nearly flat sheet. Its curved outer edge is a log curve, because each ring doubles. The fill shows them as solid shapes.</li>
+      <li><strong>π(x) and Li(x).</strong> The chart under the tree counts the primes up to the growth front. Near x about one number in ln x is prime, so the count follows the integral Li(x) = ∫₂ˣ dt / ln t, the Prime Number Theorem.</li>
+      <li><strong>Riemann’s waves.</strong> Riemann’s exact formula starts from that smooth trend and adds one wave for each zero of the zeta function ζ(s). The more zeros you add, the closer the sum comes to the exact staircase of primes. The Riemann Hypothesis says every one of those zeros has real part ½, which keeps the waves, and so the error, below about √x · ln x.</li>
       <li><strong>Spokes from 2.</strong> Only Fermat primes (3, 5, 17, 257, 65537) hang straight from 2, because their p − 1 is a power of 2.</li>
     </ul>
   </section>

@@ -87,6 +87,20 @@ progress[hidden], .ghost[hidden] { display: none; }
 #bound { flex-basis: 250px; font-size: 15px; }   /* fits the full 25-digit limit; Go wraps below it in the sidebar */
 .check { display: flex; align-items: center; gap: 10px; font-size: 14px; line-height: 1.35; cursor: pointer; }
 .check input { flex: none; width: 18px; height: 18px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.waves { display: flex; flex-direction: column; gap: 12px; }
+.zero-row .row { display: flex; align-items: center; gap: 10px; }
+.zero-row output { min-width: 3ch; text-align: right; font-size: 14px; font-variant-numeric: tabular-nums; }
+.zero-row[hidden], .chart[hidden] { display: none; }
+
+.chart { max-width: min(760px, 78vh); margin: 18px auto 0; }
+.chart canvas { display: block; width: 100%; aspect-ratio: 12 / 5; }
+.chart-key { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; color: var(--ink-2); margin-bottom: 6px; font-variant-numeric: tabular-nums; }
+.chart-key span { display: inline-flex; align-items: center; gap: 6px; }
+.chart-key i { width: 14px; height: 0; border-top: 2px solid; display: inline-block; }
+.chart-key i.dash { border-top-style: dashed; }
+.is-full .chart { width: var(--side); max-width: none; flex: none; margin: 10px 0 0; }
+.stage-col.is-full.charted { --side: min(calc(100vw - 32px), calc((100vh - 128px) / 1.42)); }
+
 .ghost { align-self: flex-start; font-size: 14px; color: var(--ink-2); }
 
 .notes { margin-top: 40px; max-width: 70ch; }
@@ -100,7 +114,7 @@ body.embed .wrap { padding: 12px; }
 
 @media (max-width: 860px) {
   .app { grid-template-columns: minmax(0, 1fr); }
-  .stage, .transport { max-width: 100%; }
+  .stage, .transport, .chart { max-width: 100%; }
   .wrap { padding: 20px 14px 40px; }
 }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }

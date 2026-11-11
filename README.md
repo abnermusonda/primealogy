@@ -54,12 +54,15 @@ Upload the folder to any static host (Azure Storage static website, GitHub Pages
 | `root` | `#root=2` | Highlights only the primes that hang directly from that prime and dims the rest. `root=2` gives the Fermat primes. Ignored unless it's a prime in the current range. The "Only primes hanging directly from 2" checkbox turns `root=2` on and off |
 | `rings` | `#max=8192&rings=value` | Makes the radius of each generation's ring proportional to its largest prime, instead of placing it on the tree's log scale. The "Size generation rings by largest prime" checkbox turns it on and off |
 | `gen` | `#max=8192&gen=3,4` | Shows only those generations and hides the rest. The color key does the same: tap colors to add or remove them, or tap All to reset |
+| `pi` | `#max=8192&pi=1` | Shows the chart of π(x), the exact count of primes, against Li(x) = ∫₂ˣ dt / ln t. Its x axis follows the tree's growth. The "Plot π(x) against Li(x)" checkbox turns it on and off |
+| `zeros` | `#max=100&zeros=10` | Adds Riemann's explicit formula to the chart, using the first 1 to 200 zeros of ζ(s). Each zero adds one wave, and together they rebuild the staircase. Implies `pi=1`. The "Add Riemann's waves" checkbox and the slider under it set it |
+| `gap` | `#max=50000&zeros=200&gap=1` | Plots π(x) − Li(x) instead, with the bound √x · ln x / 8π that holds from x = 2657 if the Riemann Hypothesis is true. Implies `pi=1`. The "Show the gap" checkbox turns it on and off |
 | `fill` | `#max=2000000&fill=0` | `fill=0` removes the shading between each prime's children, which is on by default so the feathers read as solid shapes. The "Fill in the feathers" checkbox turns it on and off |
 
 ## Controls
 
 Play or pause the growth, scrub with the slider, tap a dot to trace its line back to 2, search for a
-prime (up to 5,000,000), set the upper limit, fill in the feathers, size the generation rings by largest prime, pick which generations to show from the color key, go full screen, drag to rotate the tree on both axes, pinch or scroll to zoom, and shift-drag to pan when zoomed in. Each
+prime (up to 5,000,000), set the upper limit, fill in the feathers, size the generation rings by largest prime, plot π(x) against Li(x) and add Riemann's waves from up to 200 zeta zeros, pick which generations to show from the color key, go full screen, drag to rotate the tree on both axes, pinch or scroll to zoom, and shift-drag to pan when zoomed in. Each
 generation is its own layer. A double-click or the reset button restores the starting view. Visitors who prefer reduced motion see the finished tree without the animation.
 
 ## Notes
@@ -67,6 +70,10 @@ generation is its own layer. A double-click or the reset button restores the sta
 - Fonts come from Google Fonts (Playfair Display and Outfit). If they are blocked, the page falls back to
   system fonts. To self-host them, replace the two `fonts.googleapis.com` links in `index.html`.
 - Everything is computed in the browser. Building the tree takes milliseconds, even at its 5,000,000 limit.
+- The chart's zeta zeros come from the Riemann–Siegel formula, found as sign changes of Z(t). The first ten are
+  hard-coded to 9 places, and the rest are good to about 0.001, which is far finer than the chart can show. The
+  explicit formula is π(x) = R(x) − Σ R(x^ρ) − 1/ln x + arctan(π/ln x)/π, with each Li(x^ρ) from its
+  asymptotic series. With 200 zeros it is within about 0.1 of the true count up to 50,000.
 - The tree is drawn up to 5,000,000. Past that, web workers run a segmented sieve upward, keeping an exact
   count and the largest prime rather than a list, so memory stays flat. It uses every CPU core but one,
   and needs the page served over http rather than opened as a file.
