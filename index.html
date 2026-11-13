@@ -9,9 +9,7 @@
 <meta property="og:description" content="Every prime hangs from the largest prime factor of p − 1. Follow the rule and all the primes grow from 2.">
 <meta name="theme-color" content="#0a1424">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500&family=Playfair+Display:wght@500&display=swap">
+<!-- the web fonts are the page's only outside request, so they load after the visitor agrees; see the dialog at the end of the body -->
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -157,7 +155,10 @@
         <div class="dim small">Tap colors to show only those generations. Drag to rotate, pinch or scroll to zoom, shift-drag to pan, tap a dot to trace it.</div>
       </div>
 
-      <button id="theme" class="ghost" type="button" aria-label="Switch color theme">Switch to light</button>
+      <div class="foot">
+        <button id="theme" class="ghost" type="button" aria-label="Switch color theme">Switch to light</button>
+        <button id="privacyOpen" class="ghost" type="button">Privacy &amp; data</button>
+      </div>
     </aside>
   </section>
 
@@ -179,6 +180,28 @@
     </ul>
   </section>
 </main>
+<dialog id="privacy" class="privacy" aria-labelledby="privacyTitle" aria-describedby="privacyDesc">
+  <form method="dialog" class="privacy-content">
+    <div class="privacy-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M12 3 19 6v5c0 4.7-3 8-7 10-4-2-7-5.3-7-10V6l7-3Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="m9 12 2 2 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <h2 id="privacyTitle">Your data, your choice</h2>
+    <p id="privacyDesc">Everything on this page is computed in your browser. The only thing it can fetch from elsewhere is two web fonts, and that waits for your say-so.</p>
+    <ul>
+      <li><strong>Nothing is sent anywhere.</strong> The primes, the tree, the counts and the zeta plane are all computed here. There are no analytics, advertising or tracking scripts, and no server code.</li>
+      <li><strong>Web fonts:</strong> with your consent the page loads Playfair Display and Outfit from Google Fonts. Google then receives the ordinary connection details of that request, such as your IP address. Without consent the page uses the fonts already on your device and looks much the same.</li>
+      <li><strong>Saved in this browser:</strong> your color theme and this consent choice. Nothing else is stored.</li>
+      <li><strong>The link:</strong> the address bar carries the current settings, such as the limit and the selected prime, so a link you copy shows what you were looking at. It never includes anything personal.</li>
+      <li><strong>Your processor:</strong> counting past 5,000,000 runs on most of your CPU cores until it ends or you press Stop. It starts only when you press Go.</li>
+    </ul>
+    <div class="privacy-note">You can change your mind at any time from the “Privacy &amp; data” button under the controls.</div>
+    <div class="privacy-actions">
+      <button id="privacyLocal" class="privacy-secondary" type="button">Continue with system fonts</button>
+      <button id="privacyWithdraw" class="privacy-secondary" type="button" hidden>Withdraw consent</button>
+      <button id="privacyAccept" class="privacy-primary" type="button">I consent to loading the fonts</button>
+    </div>
+  </form>
+</dialog>
 <noscript><p class="wrap">This page needs JavaScript to draw the tree.</p></noscript>
 <script src="app.js"></script>
 </body>

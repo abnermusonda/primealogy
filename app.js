@@ -165,6 +165,45 @@
     schedule();
   }
 
+  /* ---------- consent: the web fonts are the page's only outside request ---------- */
+
+  var CONSENT_KEY = 'pft-consent-v1', FONTS = 'https://fonts.googleapis.com/css2?family=Outfit:wght@400;500&family=Playfair+Display:wght@500&display=swap';
+  var privacy = $('privacy'), fontsLoaded = false;
+  var consent = { accepted: store.get(CONSENT_KEY) === 'accepted', decided: store.get(CONSENT_KEY) !== null };
+
+  function loadFonts() {
+    if (fontsLoaded) return;
+    fontsLoaded = true;
+    [['preconnect', 'https://fonts.googleapis.com', false], ['preconnect', 'https://fonts.gstatic.com', true], ['stylesheet', FONTS, false]].forEach(function (l) {
+      var el = document.createElement('link');
+      el.rel = l[0]; el.href = l[1]; if (l[2]) el.crossOrigin = '';
+      if (l[0] === 'stylesheet') el.onload = function () {
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { font = getComputedStyle(document.body).fontFamily || font; ui.chain._t = ''; ui.chartKey._t = ''; schedule(); });
+      };
+      document.head.appendChild(el);
+    });
+  }
+  function syncPrivacy() {
+    $('privacyWithdraw').hidden = !consent.accepted;
+    $('privacyLocal').hidden = consent.accepted;
+    $('privacyAccept').hidden = consent.accepted;
+  }
+  function setConsent(accepted) {
+    consent.accepted = accepted; consent.decided = true;
+    if (accepted) store.set(CONSENT_KEY, 'accepted'); else store.set(CONSENT_KEY, 'declined');
+    if (accepted) loadFonts();
+    syncPrivacy();
+    if (privacy.open) privacy.close();
+  }
+  function openPrivacy() { syncPrivacy(); if (!privacy.open) { if (privacy.showModal) privacy.showModal(); else privacy.setAttribute('open', ''); } }
+  $('privacyAccept').addEventListener('click', function () { setConsent(true); });
+  $('privacyLocal').addEventListener('click', function () { setConsent(false); });
+  $('privacyWithdraw').addEventListener('click', function () { setConsent(false); });   /* fonts already loaded stay for this visit; the next one starts without them */
+  $('privacyOpen').addEventListener('click', openPrivacy);
+  privacy.addEventListener('cancel', function (e) { e.preventDefault(); });              /* Escape isn't an answer; the buttons are */
+  if (consent.accepted) loadFonts();
+  else if (!consent.decided) openPrivacy();
+
   function genColor(g) { return col[Math.min(g, col.length) - 1]; }
 
   function buildLegend() {
@@ -1564,7 +1603,6 @@
   layout();
   showChart();
   showZeta();
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { font = getComputedStyle(document.body).fontFamily || font; ui.chain._t = ''; schedule(); });
 
   var startOk = startP >= 2 && startP % 1 === 0 && startP <= TREE_MAX;
   if (startOk && isPrime(startP)) focusPrime(startP);

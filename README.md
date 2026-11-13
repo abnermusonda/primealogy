@@ -42,6 +42,14 @@ Upload the folder to any static host (Azure Storage static website, GitHub Pages
 `index.html`. To try it locally, run `python3 -m http.server` inside the folder and visit
 `http://localhost:8000`.
 
+## Privacy and consent
+
+The page sends nothing anywhere. Its only outside request is for two web fonts from Google Fonts, so on the
+first visit a dialog asks before loading them; “Continue with system fonts” keeps everything working with the
+fonts already on the device. The choice and the color theme are the only things saved in browser storage, and
+the “Privacy & data” button under the controls reopens the dialog to change or withdraw the choice. Counting
+past 5,000,000 uses most of the CPU, and only starts when a visitor presses Go.
+
 ## URL options
 
 | Option | Example | Effect |
@@ -72,8 +80,8 @@ generation is its own layer. A double-click or the reset button restores the sta
 
 ## Notes
 
-- Fonts come from Google Fonts (Playfair Display and Outfit). If they are blocked, the page falls back to
-  system fonts. To self-host them, replace the two `fonts.googleapis.com` links in `index.html`.
+- Fonts come from Google Fonts (Playfair Display and Outfit) and load only after consent. If they are blocked, the
+  page falls back to system fonts. To self-host them, change the `FONTS` address in `app.js` and drop the dialog.
 - Everything is computed in the browser. Building the tree takes milliseconds, even at its 5,000,000 limit.
 - The zeta plane evaluates ζ(s) off the line by Euler–Maclaurin summation with at least |Im s| terms and eight
   Bernoulli corrections, good to about 10 places in the strip at the heights shown. The zero check computes N(T) by the
