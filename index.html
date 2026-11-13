@@ -44,6 +44,10 @@
         <div id="chartKey" class="chart-key"></div>
         <canvas id="pichart" role="img" aria-label="The prime-counting staircase π(x) up to the tree's growth front, with the smooth curve Li(x) and, when switched on, Riemann's explicit formula built from the zeros of the zeta function."></canvas>
       </figure>
+      <figure id="zetaWrap" class="chart" hidden>
+        <div id="zetaKey" class="chart-key zeta-key"></div>
+        <canvas id="zplane" role="img" aria-label="A map of the Riemann zeta function across the critical strip. The real part of s runs from −0.5 at the bottom to 1.5 at the top, the imaginary part runs left to right. Color shows the phase and brightness the size, so the zeros appear as dark spots, all on the middle line where the real part is one half."></canvas>
+      </figure>
     </div>
 
     <aside class="side">
@@ -85,6 +89,21 @@
         <span>Fill in the feathers</span>
       </label>
 
+      <div class="card waves">
+        <label class="check">
+          <input id="lineToggle" type="checkbox">
+          <span>Join all the primes in order, 2 → 3 → 5 → 7 …</span>
+        </label>
+        <label id="planeRow" class="check sub" hidden>
+          <input id="planeToggle" type="checkbox">
+          <span>Fill the planes between steps, deeper across more layers</span>
+        </label>
+        <label id="solidRow" class="check sub" hidden>
+          <input id="solidToggle" type="checkbox">
+          <span>Close it all into one solid</span>
+        </label>
+      </div>
+
       <label class="card check">
         <input id="ringToggle" type="checkbox">
         <span>Size generation rings by largest prime</span>
@@ -103,12 +122,32 @@
           <input id="gapToggle" type="checkbox">
           <span>Show the gap, π(x) − Li(x)</span>
         </label>
+        <label class="check">
+          <input id="psiToggle" type="checkbox">
+          <span>Weigh each prime by ln p: ψ(x) against x</span>
+        </label>
         <div id="zeroRow" class="zero-row" hidden>
           <label class="label" for="zeros">Zeros of ζ(s) used</label>
           <div class="row">
             <input id="zeros" type="range" min="1" max="200" step="1" value="50">
             <output id="zeroOut" for="zeros">50</output>
           </div>
+        </div>
+      </div>
+
+      <div class="card waves">
+        <label class="check">
+          <input id="zetaToggle" type="checkbox">
+          <span>Show the zeta plane</span>
+        </label>
+        <div id="zetaRow" class="zero-row" hidden>
+          <label class="label" for="zt">Height, Im s up to</label>
+          <div class="row">
+            <input id="zt" type="range" min="30" max="390" step="10" value="120">
+            <output id="ztOut" for="zt">120</output>
+          </div>
+          <button id="checkBtn" class="ghost" type="button">Check the zeros below this height</button>
+          <div id="checkOut" class="dim small run"></div>
         </div>
       </div>
 
@@ -132,6 +171,10 @@
       <li><strong>Feathers.</strong> A prime's children are laid out in order of size, so the edges fan out into a nearly flat sheet. Its curved outer edge is a log curve, because each ring doubles. The fill shows them as solid shapes.</li>
       <li><strong>π(x) and Li(x).</strong> The chart under the tree counts the primes up to the growth front. Near x about one number in ln x is prime, so the count follows the integral Li(x) = ∫₂ˣ dt / ln t, the Prime Number Theorem.</li>
       <li><strong>Riemann’s waves.</strong> Riemann’s exact formula starts from that smooth trend and adds one wave for each zero of the zeta function ζ(s). The more zeros you add, the closer the sum comes to the exact staircase of primes. The Riemann Hypothesis says every one of those zeros has real part ½, which keeps the waves, and so the error, below about √x · ln x.</li>
+      <li><strong>All the primes in order.</strong> With “Join all the primes in order” on, the edges give way to one line that visits every prime in ascending order, 2 → 3 → 5 → 7 → 11 → …, up to the largest prime in the range. Each step takes the color of the generation it lands in, so the line jumps between layers as consecutive primes fall in different generations.</li>
+      <li><strong>Planes.</strong> Any three primes in a row on that line span a triangle, a piece of a plane. “Fill the planes” shades each one. A triangle whose primes share a generation lies flat in its layer, a 2D plane, and gets the lightest shade. One that reaches across two layers tilts through 3D and is deeper, and one that spans three layers is deepest. Where planes overlap, their shades add up. “Close it all into one solid” wraps every prime in the single tightest solid that holds them all, their convex hull, and draws it opaque and lit from the upper left so it reads as an object as you turn it. Each face takes the color of the layer it sits at.</li>
+      <li><strong>ψ(x).</strong> “Weigh each prime by ln p” swaps π(x) for Chebyshev’s ψ(x), which adds ln p for every prime power pᵏ ≤ x. Its trend is simply x, and its exact formula is cleaner: ψ(x) = x − Σ xᵖ/ρ − ln 2π − ½ ln(1 − x⁻²), one pure √x · cos(γ ln x) wave per zero. Under the Riemann Hypothesis |ψ(x) − x| stays below √x · ln²x / 8π. The chart key also feeds the primes back into Euler’s product, ∏ 1/(1 − p⁻²), which closes in on ζ(2) = π²/6.</li>
+      <li><strong>The zeta plane.</strong> “Show the zeta plane” maps ζ(s) across the critical strip, with Re s from −0.5 to 1.5 up the side and Im s along the bottom. Color is the phase of ζ(s), brightness its size, so the zeros are the dark spots; they all sit on the dashed line Re s = ½. “Check the zeros” counts them two ways: by the argument principle, which finds every zero in the strip below that height, and as sign changes on the line. When the counts agree, every zero below that height is on the line, which is how the Riemann Hypothesis has been verified numerically up to heights past 10¹².</li>
       <li><strong>Spokes from 2.</strong> Only Fermat primes (3, 5, 17, 257, 65537) hang straight from 2, because their p − 1 is a power of 2.</li>
     </ul>
   </section>

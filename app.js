@@ -38,10 +38,12 @@
     rootToggle: $('rootToggle'), boundForm: $('boundForm'), bound: $('bound'), bounderr: $('bounderr'),
     runBar: $('runBar'), runStatus: $('runStatus'), stop: $('stop'), stats: $('stats'), legend: $('legend'), theme: $('theme'),
     fillToggle: $('fillToggle'), ringToggle: $('ringToggle'), zin: $('zin'), zout: $('zout'), zreset: $('zreset'), zfull: $('zfull'),
-    piToggle: $('piToggle'), waveToggle: $('waveToggle'), gapToggle: $('gapToggle'), zeroRow: $('zeroRow'), zeros: $('zeros'), zeroOut: $('zeroOut'),
-    chartWrap: $('chartWrap'), chartKey: $('chartKey'), chart: $('pichart')
+    lineToggle: $('lineToggle'), planeToggle: $('planeToggle'), planeRow: $('planeRow'), solidToggle: $('solidToggle'), solidRow: $('solidRow'), piToggle: $('piToggle'), waveToggle: $('waveToggle'), gapToggle: $('gapToggle'), zeroRow: $('zeroRow'), zeros: $('zeros'), zeroOut: $('zeroOut'),
+    chartWrap: $('chartWrap'), chartKey: $('chartKey'), chart: $('pichart'), psiToggle: $('psiToggle'),
+    zetaToggle: $('zetaToggle'), zetaRow: $('zetaRow'), zt: $('zt'), ztOut: $('ztOut'), checkBtn: $('checkBtn'), checkOut: $('checkOut'),
+    zetaWrap: $('zetaWrap'), zetaKey: $('zetaKey'), zplane: $('zplane')
   };
-  var cctx = ui.chart.getContext('2d');
+  var cctx = ui.chart.getContext('2d'), zctx = ui.zplane.getContext('2d');
 
   var store = {
     get: function (k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } },
@@ -99,6 +101,9 @@
       fans[gen[i] + 1].push(i);
     }
 
+    /* running sums over the primes in order: Σ ln p for ψ(x), and Σ −ln(1 − p⁻²) for the Euler product */
+    var lnSum = new Float64Array(n + 1), euler = new Float64Array(n + 1);
+    for (i = 0; i < n; i++) { lnSum[i + 1] = lnSum[i] + Math.log(P[i]); euler[i + 1] = euler[i] - Math.log(1 - 1 / (P[i] * P[i])); }
     var deep = 0, leaves = 0;
     for (i = 1; i < n; i++) if (gen[i] > gen[deep]) deep = i;
     for (i = 0; i < n; i++) if (!kids[i].length) leaves++;
@@ -108,7 +113,7 @@
       return out;
     };
     return { exp: exp, N: N, P: P, n: n, idx: idx, par: par, gen: gen, kids: kids, byGen: byGen, fans: fans, lg: lg, ang: ang,
-             deep: deep, maxGen: gen[deep], leaves: leaves, factor: factor };
+             deep: deep, maxGen: gen[deep], leaves: leaves, factor: factor, lnSum: lnSum, euler: euler };
   }
 
   /* ---------- state ---------- */
@@ -129,6 +134,12 @@
   var genSel = null;                             /* generations on show as { g: 1 }; null means all */
   var ringsByValue = false;                      /* ring radius follows a generation's largest prime itself, not its log */
   var fillFans = true;                           /* shade the sheet between each parent's children */
+  var oneSolid = false;                          /* draw the primes as one solid, their convex hull, in place of everything else */
+  var fillPlanes = false;                        /* shade the triangle of every three primes in a row on that line */
+  var PLANE_FILL = [0, 0.07, 0.16, 0.3];         /* by how many layers the triangle spans: flat 2D, tilted 3D, three layers */
+  var wholeLines = false;                        /* one line through all the primes in ascending order, instead of the edges */
+  var psiMode = false;                           /* weigh each prime by ln p: Chebyshev's ψ(x) in place of π(x) */
+  var zetaPlane = false, zetaTop = 120;          /* the map of ζ(s) across the strip, up to height zetaTop */
   var piChart = false, waves = false, gapView = false, zeroCount = 50;   /* the π(x) chart, Riemann's waves, and π(x) − Li(x) */
   var frameReq = 0;
   var theme = 'dark', col = RAMPS.dark, ink = '#eef1f6', paper = '#0a1424', muted = '#7d8aa1', line = 'rgba(255,255,255,.09)', line2 = 'rgba(255,255,255,.16)';
@@ -223,6 +234,7 @@
     E = new Float32Array(T.n * stride);
     for (i = 1; i < T.n; i++) buildEdge(i);
     if (piChart) layoutChart();
+    if (zetaPlane) layoutZeta();
     clampView(); schedule();
   }
 
@@ -269,6 +281,10 @@
     ctx.closePath();
     return true;
   }
+
+  /* with lines=1, one line runs through every prime in ascending order, 2 → 3 → 5 → 7 → 11 → …,
+     up to the largest prime in the range; this is its step into prime i from the prime before it */
+  function addStep(i) { ctx.moveTo(SX[i - 1], SY[i - 1]); ctx.lineTo(SX[i], SY[i]); }
 
   function addCircle(r, z) {
     var steps = 72;
@@ -338,10 +354,25 @@
       }
     }
 
+    if (wholeLines && fillPlanes) {
+      /* the triangle around each prime of this layer and its neighbours on the line, by layers spanned */
+      ctx.fillStyle = c;
+      for (var d = 1; d <= 3; d++) {
+        ctx.beginPath();
+        for (k = 0; k < list.length && (i = list[k]) < m - 1; k++) {
+          var ga = T.gen[i - 1], gb = T.gen[i + 1];
+          if ((1 + (ga !== g) + (gb !== g && gb !== ga)) !== d) continue;
+          ctx.moveTo(SX[i - 1], SY[i - 1]); ctx.lineTo(SX[i], SY[i]); ctx.lineTo(SX[i + 1], SY[i + 1]); ctx.closePath();
+        }
+        ctx.globalAlpha = PLANE_FILL[d] * (marked ? DIM : 1) * f; ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
     ctx.beginPath();
-    for (k = 0; k < list.length && (i = list[k]) < m; k++) if (!(marked && marked[i])) addEdge(i);
+    for (k = 0; k < list.length && (i = list[k]) < m; k++) if (!(marked && marked[i])) { if (wholeLines) addStep(i); else addEdge(i); }
     ctx.strokeStyle = c; ctx.lineWidth = width;
-    ctx.globalAlpha = (marked ? DIM * 0.5 : big ? 0.45 : 0.55) * f;
+    ctx.globalAlpha = (marked ? DIM * 0.5 : wholeLines ? (big ? 0.3 : 0.4) : big ? 0.45 : 0.55) * f;
     ctx.stroke();
 
     ctx.beginPath();
@@ -369,12 +400,14 @@
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, W);
-    drawRings(m);
+    if (!wholeLines) drawRings(m);              /* the line reads better without the rings behind it */
 
+    var solid = wholeLines && fillPlanes && oneSolid;
     cnt.fill(0);
     for (i = 1; i < m; i++) cnt[T.par[i]]++;
     /* painter's order: the layer farthest from the viewer first */
-    for (k = 1; k <= T.maxGen; k++) {
+    if (solid) drawSolid(m);
+    else for (k = 1; k <= T.maxGen; k++) {
       g = cosT >= 0 ? k : T.maxGen + 1 - k;
       if (!genHidden(g)) drawLayer(g, m);
     }
@@ -390,11 +423,12 @@
     var picked = sel >= 0 && sel < m;
     var f = picked ? sel : m >= T.n ? T.deep : shown;
     var listing = marked !== null && !pair && !picked;   /* the filter speaks for the panel; skip the auto line */
-    if (pair) { trace(near.lo); trace(near.hi); }
+    if (solid) { /* the solid would hide the line, so it isn't drawn on top of it */ }
+    else if (pair) { trace(near.lo); trace(near.hi); }
     else if (f > 0 && !listing && (picked || !genSel)) trace(f);   /* the automatic line would cross hidden generations */
 
     /* labelled discs for 2, 3, 5, 17 */
-    for (i = 0; i < Math.min(m, 8); i++) if (isBig(i) && !(i && genHidden(T.gen[i]))) {
+    for (i = 0; i < Math.min(m, 8); i++) if (!solid && isBig(i) && !(i && genHidden(T.gen[i]))) {
       ctx.beginPath(); ctx.arc(SX[i], SY[i], dotSize(i), 0, TAU);
       ctx.fillStyle = i ? col[0] : ink;
       ctx.globalAlpha = marked && i && !marked[i] ? DIM : 1; ctx.fill();
@@ -412,6 +446,118 @@
     put(ui.upto, 'up to ' + fmt(Math.min(T.N, Math.floor(Math.pow(2, L) + 1e-6))));
     put(ui.count, fmt(m) + (m === 1 ? ' prime' : ' primes'));
     drawChart(ts);
+    drawZeta();
+  }
+
+  /* ---------- one solid: the convex hull of the primes ---------- */
+
+  /* The hull's corners must be corners of some layer's own outline, because each layer is flat.
+     So each layer is cut down to its 2D hull first, which leaves a few hundred points even for
+     big trees, and the 3D hull is grown from those one point at a time. */
+  function layerHull(ids) {
+    var pts = ids.slice().sort(function (a, b) { return WX[a] - WX[b] || WY[a] - WY[b]; });
+    if (pts.length < 3) return pts;
+    var cross = function (o, a, b) { return (WX[a] - WX[o]) * (WY[b] - WY[o]) - (WY[a] - WY[o]) * (WX[b] - WX[o]); };
+    var lower = [], upper = [], k;
+    for (k = 0; k < pts.length; k++) {
+      while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], pts[k]) <= 0) lower.pop();
+      lower.push(pts[k]);
+    }
+    for (k = pts.length - 1; k >= 0; k--) {
+      while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], pts[k]) <= 0) upper.pop();
+      upper.push(pts[k]);
+    }
+    return lower.slice(0, -1).concat(upper.slice(0, -1));
+  }
+
+  function hull3d(ids) {
+    if (ids.length < 4) return [];
+    var eps = 1e-7 * W, faces = [], k, i;
+    var face = function (a, b, c) {
+      var ux = WX[b] - WX[a], uy = WY[b] - WY[a], uz = WZ[b] - WZ[a];
+      var vx = WX[c] - WX[a], vy = WY[c] - WY[a], vz = WZ[c] - WZ[a];
+      var nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, len = Math.hypot(nx, ny, nz) || 1;
+      nx /= len; ny /= len; nz /= len;
+      return { a: a, b: b, c: c, nx: nx, ny: ny, nz: nz, d: nx * WX[a] + ny * WY[a] + nz * WZ[a], live: true };
+    };
+    var above = function (f, p) { return f.nx * WX[p] + f.ny * WY[p] + f.nz * WZ[p] - f.d; };
+
+    /* a first tetrahedron from points far apart: the two ends in x, the farthest from their line,
+       then the farthest from that plane */
+    var p0 = ids[0], p1 = ids[0], p2 = -1, p3 = -1, best = 0, v;
+    ids.forEach(function (p) { if (WX[p] < WX[p0]) p0 = p; if (WX[p] > WX[p1]) p1 = p; });
+    if (p0 === p1) return [];
+    ids.forEach(function (p) {
+      var ax = WX[p1] - WX[p0], ay = WY[p1] - WY[p0], az = WZ[p1] - WZ[p0], bx = WX[p] - WX[p0], by = WY[p] - WY[p0], bz = WZ[p] - WZ[p0];
+      v = Math.hypot(ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx);
+      if (v > best) { best = v; p2 = p; }
+    });
+    if (p2 < 0 || best < eps) return [];
+    var base = face(p0, p1, p2); best = 0;
+    ids.forEach(function (p) { v = Math.abs(above(base, p)); if (v > best) { best = v; p3 = p; } });
+    if (p3 < 0 || best < eps) return [];
+    if (above(base, p3) > 0) { var t = p1; p1 = p2; p2 = t; }   /* keep every face's normal pointing out */
+    faces.push(face(p0, p1, p2), face(p0, p3, p1), face(p1, p3, p2), face(p2, p3, p0));
+
+    for (i = 0; i < ids.length; i++) {
+      var p = ids[i];
+      if (p === p0 || p === p1 || p === p2 || p === p3) continue;
+      var seen = [], edges = new Map();
+      for (k = 0; k < faces.length; k++) if (faces[k].live && above(faces[k], p) > eps) seen.push(faces[k]);
+      if (!seen.length) continue;                  /* inside the hull so far */
+      /* the horizon: edges of the faces p can see whose other side it can't */
+      seen.forEach(function (f) {
+        f.live = false;
+        [[f.a, f.b], [f.b, f.c], [f.c, f.a]].forEach(function (e) {
+          var back = e[1] + ',' + e[0];
+          if (edges.has(back)) edges.delete(back); else edges.set(e[0] + ',' + e[1], e);
+        });
+      });
+      edges.forEach(function (e) { faces.push(face(e[0], e[1], p)); });
+      if (faces.length > 4 * ids.length + 64) faces = faces.filter(function (f) { return f.live; });
+    }
+    return faces.filter(function (f) { return f.live; });
+  }
+
+  var hullCache = { key: '', faces: [] };
+  function solidHull(m) {
+    var key = m + '|' + W + '|' + (genSel ? genList().join(',') : '');
+    if (hullCache.key === key) return hullCache.faces;
+    var ids = [0], g, k, list;
+    for (g = 1; g <= T.maxGen; g++) {
+      if (genHidden(g)) continue;
+      list = [];
+      for (k = 0; k < T.byGen[g].length && T.byGen[g][k] < m; k++) list.push(T.byGen[g][k]);
+      ids = ids.concat(layerHull(list));
+    }
+    return (hullCache = { key: key, faces: hull3d(ids) }).faces;
+  }
+
+  function rgb(hex) { var n = parseInt(hex.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+
+  /* lit from the upper left, in front; faces are drawn far to near so the solid hides itself */
+  function drawSolid(m) {
+    var faces = solidHull(m), lx = -0.45, ly = -0.6, lz = 0.66, order = [], k;
+    var ramp = col.map(rgb);
+    faces.forEach(function (f) {
+      var z = 0, q;
+      [f.a, f.b, f.c].forEach(function (p) { q = p; var y1 = WX[q] * sinS + WY[q] * cosS; z += y1 * sinT + WZ[q] * cosT; });
+      order.push({ f: f, z: z });
+    });
+    order.sort(function (a, b) { return a.z - b.z; });
+    ctx.lineJoin = 'round';
+    for (k = 0; k < order.length; k++) {
+      var f = order[k].f;
+      var nx1 = f.nx * cosS - f.ny * sinS, ny1 = f.nx * sinS + f.ny * cosS;
+      var ny2 = ny1 * cosT - f.nz * sinT, nz2 = ny1 * sinT + f.nz * cosT;
+      var light = 0.28 + 0.72 * Math.max(0, nx1 * lx + ny2 * ly + nz2 * lz);
+      var gz = (WZ[f.a] + WZ[f.b] + WZ[f.c]) / 3, g = layerGap ? Math.round(gz / layerGap + T.maxGen / 2) : 1;
+      var c = ramp[Math.max(0, Math.min(ramp.length - 1, g - 1))];
+      var fill = 'rgb(' + Math.round(c[0] * light) + ',' + Math.round(c[1] * light) + ',' + Math.round(c[2] * light) + ')';
+      ctx.beginPath(); ctx.moveTo(SX[f.a], SY[f.a]); ctx.lineTo(SX[f.b], SY[f.b]); ctx.lineTo(SX[f.c], SY[f.c]); ctx.closePath();
+      ctx.fillStyle = fill; ctx.fill();
+      ctx.strokeStyle = fill; ctx.lineWidth = 0.8; ctx.stroke();       /* closes the hairline seams between faces */
+    }
   }
 
   /* one line of descent, from prime f back to 2 */
@@ -552,12 +698,14 @@
     if (Math.abs(c) < 1e-9) { p += 1e-9; c = Math.cos(TAU * p); }
     return 2 * s + (N % 2 ? 1 : -1) * Math.pow(a, -0.5) * Math.cos(TAU * (p * p - p - 1 / 16)) / c;
   }
-  function getZeros() {
-    if (zetaZeros) return zetaZeros;
-    var out = [14.134725142, 21.022039639, 25.010857580, 30.424876126, 32.935061588,
+  var zeroScan = { t: 50.5, z0: 0 };
+  zetaZeros = [14.134725142, 21.022039639, 25.010857580, 30.424876126, 32.935061588,
                37.586178159, 40.918719012, 43.327073281, 48.005150881, 49.773832478];
-    var t = 50.5, h = 0.02, z0 = rsZ(t);
-    while (out.length < ZERO_MAX) {
+  zeroScan.z0 = rsZ(zeroScan.t);
+  /* scan upward in steps of 0.02 until the stop condition holds, bisecting each sign change */
+  function extendZeros(stop) {
+    var out = zetaZeros, t = zeroScan.t, h = 0.02, z0 = zeroScan.z0;
+    while (!stop(out, t)) {
       var t1 = t + h, z1 = rsZ(t1);
       if ((z0 < 0) !== (z1 < 0)) {
         var lo = t, hi = t1, zl = z0;
@@ -566,8 +714,11 @@
       }
       t = t1; z0 = z1;
     }
-    return (zetaZeros = out);
+    zeroScan.t = t; zeroScan.z0 = z0;
+    return out;
   }
+  function getZeros() { return extendZeros(function (out) { return out.length >= ZERO_MAX; }); }
+  function zerosUpTo(Tz) { return extendZeros(function (out, t) { return t > Tz; }); }
 
   /* one zero and its mirror image together: 2·Re Li(x^ρ) with ρ = ½ + iγ and u = ln x,
      from the asymptotic series e^z/z · Σ k!/z^k, which is sharp here because |z| > 9 */
@@ -606,6 +757,152 @@
     return lo;
   }
 
+  /* ---------- Chebyshev's ψ(x) and its explicit formula ---------- */
+
+  function thetaAt(x) { return T.lnSum[piAt(x)]; }        /* Σ ln p over p ≤ x */
+  function psiAt(x) {                                      /* Σ ln p over prime powers p^k ≤ x */
+    var v = 0;
+    for (var k = 1; ; k++) { var r = Math.pow(x, 1 / k); if (r < 2) break; v += thetaAt(r); }
+    return v;
+  }
+  /* ψ(x) = x − Σ_ρ x^ρ/ρ − ln 2π − ½ ln(1 − x⁻²); a zero and its mirror give 2√x (½ cos γu + γ sin γu)/(¼ + γ²) */
+  function explicitPsi(x, K) {
+    var u = Math.log(x), r = Math.sqrt(x), zs = getZeros(), v = x - Math.log(TAU) - 0.5 * Math.log(1 - 1 / (x * x));
+    for (var k = 0; k < K; k++) { var g = zs[k]; v -= 2 * r * (0.5 * Math.cos(g * u) + g * Math.sin(g * u)) / (0.25 + g * g); }
+    return v;
+  }
+  function countAt(x) { return psiMode ? psiAt(x) : piAt(x); }
+  function smoothAt(x) { return psiMode ? x : Li(x); }
+  function explicitAt(x, K) { return psiMode ? explicitPsi(x, K) : explicitPi(x, K); }
+  /* Schoenfeld's bounds under the Riemann Hypothesis: |π − li| < √x ln x / 8π from 2657, |ψ − x| < √x ln²x / 8π from 73.2 */
+  function rhFrom() { return psiMode ? 73.2 : 2657; }
+  function rhBound(x) { var l = Math.log(x); return Math.sqrt(x) * l * (psiMode ? l : 1) / (8 * Math.PI); }
+
+  /* ---------- the zeta plane: ζ(s) off the line, and a count of its zeros ---------- */
+
+  var B2K = [1 / 6, -1 / 30, 1 / 42, -1 / 30, 5 / 66, -691 / 2730, 7 / 6, -3617 / 510];
+  var FACT = [1]; for (var fi = 1; fi <= 16; fi++) FACT[fi] = FACT[fi - 1] * fi;
+  /* ζ(σ + it) by Euler–Maclaurin: N ≥ |t| terms of the series, then the integral, the half term and
+     eight Bernoulli corrections. Good to about 10 places for Re s > −1 and the heights shown here. */
+  function zeta(sig, t) {
+    var N = Math.max(12, Math.ceil(Math.abs(t))), sr = 0, si = 0, n, ln, m;
+    for (n = 1; n < N; n++) { ln = Math.log(n); m = Math.exp(-sig * ln); sr += m * Math.cos(t * ln); si -= m * Math.sin(t * ln); }
+    ln = Math.log(N);
+    var mag = Math.exp((1 - sig) * ln), pr = mag * Math.cos(-t * ln), pi = mag * Math.sin(-t * ln);   /* N^(1−s) */
+    var dr = sig - 1, dd = dr * dr + t * t;
+    sr += (pr * dr + pi * t) / dd; si += (pi * dr - pr * t) / dd;                                      /* ÷ (s − 1) */
+    mag = Math.exp(-sig * ln); var nr = mag * Math.cos(t * ln), ni = -mag * Math.sin(t * ln);          /* N^−s */
+    sr += nr / 2; si += ni / 2;
+    var qr = 1, qi = 0, scale = N, invN2 = 1 / (N * N), k, j, c;
+    for (k = 1; k <= 8; k++) {
+      for (j = (k === 1 ? 0 : 2 * k - 3); j <= 2 * k - 2; j++) { var tr = qr * (sig + j) - qi * t, ti = qr * t + qi * (sig + j); qr = tr; qi = ti; }
+      scale *= invN2;
+      c = B2K[k - 1] / FACT[2 * k] * scale;
+      sr += c * (qr * nr - qi * ni); si += c * (qr * ni + qi * nr);
+    }
+    return [sr, si];
+  }
+
+  /* N(T), the number of zeros with 0 < Im s < T anywhere in the strip, by the argument principle:
+     N(T) = 1 + θ(T)/π + S(T), with S(T) the change in arg ζ along 2 → 2 + iT → ½ + iT, divided by π.
+     On Re s = 2, |ζ − 1| < 1, so the argument there is the principal one. Along the top edge the
+     step shrinks until the argument turns by less than one radian between samples. */
+  function countByArgument(Tz) {
+    var z = zeta(2, Tz), arg = Math.atan2(z[1], z[0]), prev = arg, sig = 2, step = 0.01, worst = 0;
+    while (sig > 0.5 + 1e-12) {
+      var ns = Math.max(0.5, sig - step), zz = zeta(ns, Tz), a = Math.atan2(zz[1], zz[0]), d = a - prev;
+      while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU;
+      if (Math.abs(d) > 1) { step /= 2; continue; }
+      if (Math.abs(d) > worst) worst = Math.abs(d);
+      arg += d; prev = a; sig = ns; step = Math.min(0.01, step * 1.5);
+    }
+    return { N: 1 + rsTheta(Tz) / Math.PI + arg / Math.PI, worst: worst };
+  }
+
+  function checkZeros() {
+    var Tz = zetaTop;
+    while (Math.abs(rsZ(Tz)) < 1e-3) Tz += 0.01;             /* the top edge must not pass through a zero */
+    var byArg = countByArgument(Tz), n = Math.round(byArg.N), onLine = zerosBelow(Tz);
+    var text;
+    if (Math.abs(byArg.N - n) > 0.1) text = 'The argument count came out at ' + byArg.N.toFixed(3) + ', not near a whole number, so this height can’t be checked. Try another.';
+    else text = 'Argument principle: ' + n + ' zeros with 0 < Im s < ' + Tz.toFixed(2) + ' anywhere in the strip. Sign changes of Z(t) on the line: ' + onLine + '. ' +
+      (onLine === n ? 'So every zero below that height lies on Re s = ½ and is simple.' : 'The line is short by ' + (n - onLine) + ': a zero off the line, a double zero, or two zeros closer than the 0.02 scan.') +
+      ' Largest turn of arg ζ between samples: ' + byArg.worst.toFixed(3) + ' rad.';
+    put(ui.checkOut, text);
+  }
+
+  function zerosBelow(Tz) { var zs = zerosUpTo(Tz), n = 0; while (n < zs.length && zs[n] < Tz) n++; return n; }
+
+  var ZW = 0, ZH = 0, zmap = document.createElement('canvas'), zmapKey = '';
+  function hsl(h, s, l) {
+    var a = s * Math.min(l, 1 - l), f = function (n) { var k = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); };
+    return [f(0) * 255, f(8) * 255, f(4) * 255];
+  }
+  function layoutZeta() {
+    var w = ui.zplane.clientWidth;
+    if (!w) return;
+    ZW = w; ZH = Math.round(w / 3);
+    ui.zplane.width = Math.round(ZW * dpr); ui.zplane.height = Math.round(ZH * dpr);
+    zmapKey = '';
+  }
+  var S_LO = -0.5, S_HI = 1.5;                             /* the strip is 0 ≤ Re s ≤ 1; a margin shows the pole and beyond */
+  function renderMap(cols, rows) {
+    var img = zctx.createImageData(cols, rows), d = img.data, r, c, p = 0;
+    for (r = 0; r < rows; r++) {
+      var sig = S_HI - (S_HI - S_LO) * (r + 0.5) / rows;
+      for (c = 0; c < cols; c++) {
+        var t = zetaTop * (c + 0.5) / cols, z = zeta(sig, t), mag = Math.hypot(z[0], z[1]);
+        var hue = (Math.atan2(z[1], z[0]) / TAU + 1) % 1 * 360;
+        var light = 0.06 + 0.86 * (1 - Math.exp(-mag / 0.7));     /* dark at a zero, bright where |ζ| is large */
+        var rgb = hsl(hue, 0.7, light);
+        d[p++] = rgb[0]; d[p++] = rgb[1]; d[p++] = rgb[2]; d[p++] = 255;
+      }
+    }
+    zmap.width = cols; zmap.height = rows;
+    zmap.getContext('2d').putImageData(img, 0, 0);
+  }
+  function drawZeta() {
+    if (!zetaPlane || !ZW) return;
+    var padL = 46, padR = 10, padT = 8, padB = 22, pw = ZW - padL - padR, ph = ZH - padT - padB, c = zctx, k, t, step;
+    var key = zetaTop + '|' + ZW;
+    if (zmapKey !== key) { renderMap(Math.round(pw), Math.round(ph / 2)); zmapKey = key; }
+    var px = function (t) { return padL + t / zetaTop * pw; }, py = function (sig) { return padT + (S_HI - sig) / (S_HI - S_LO) * ph; };
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.clearRect(0, 0, ZW, ZH);
+    c.imageSmoothingEnabled = true;
+    c.drawImage(zmap, padL, padT, pw, ph);
+    c.font = '11px ' + font; c.lineWidth = 1;
+    /* the strip's edges and the critical line */
+    [[0, muted], [1, muted], [0.5, ink]].forEach(function (e) {
+      c.beginPath(); c.moveTo(padL, py(e[0])); c.lineTo(padL + pw, py(e[0]));
+      c.strokeStyle = e[1]; c.setLineDash(e[0] === 0.5 ? [4, 4] : [2, 3]); c.globalAlpha = 0.9; c.stroke();
+    });
+    c.setLineDash([]); c.globalAlpha = 1;
+    /* the zeros */
+    var zs = zerosUpTo(zetaTop), ring = Math.min(3.5, Math.max(1.5, pw / (3 * zerosBelow(zetaTop))));
+    for (k = 0; k < zs.length && zs[k] < zetaTop; k++) {
+      c.beginPath(); c.arc(px(zs[k]), py(0.5), ring, 0, TAU);
+      c.strokeStyle = ink; c.lineWidth = 1.2; c.stroke();
+    }
+    /* axes */
+    c.fillStyle = muted; c.textAlign = 'right'; c.textBaseline = 'middle';
+    [[1, '1'], [0.5, '½'], [0, '0']].forEach(function (e) { c.fillText(e[1], padL - 8, py(e[0])); });
+    c.save(); c.translate(11, padT + ph / 2); c.rotate(-Math.PI / 2); c.textAlign = 'center'; c.fillText('Re s', 0, 0); c.restore();
+    c.textAlign = 'center'; c.textBaseline = 'top';
+    step = niceStep(zetaTop, Math.max(2, Math.floor(pw / 80)));
+    for (t = step; t <= zetaTop; t += step) c.fillText(fmtAxis(t), px(t), padT + ph + 6);
+    c.textAlign = 'left'; c.fillText('Im s →', padL, padT + ph + 6);
+    put(ui.zetaKey, 'Color is the phase of ζ(s); dark is small |ζ(s)|, the zeros. Bright at the left edge is the pole at s = 1. ' +
+      k + (k === 1 ? ' zero' : ' zeros') + ' below ' + fmt(zetaTop) + ', ringed, all on the dashed line Re s = ½.');
+  }
+  function showZeta() {
+    ui.zetaWrap.hidden = !zetaPlane; ui.zetaRow.hidden = !zetaPlane;
+    ui.zetaToggle.checked = zetaPlane; ui.zt.value = zetaTop; ui.ztOut.value = ui.ztOut.textContent = zetaTop;
+    fsHost.classList.toggle('zeta-on', zetaPlane);
+    if (zetaPlane) layoutZeta();
+    schedule();
+  }
+
   var CW = 0, CH = 0, chartAt = 0, waveCache = { key: '' };
   var compact = window.Intl && Intl.NumberFormat ? new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }) : null;
   function fmtAxis(v) { return v < 10000 || !compact ? fmt(v) : compact.format(v); }
@@ -628,7 +925,7 @@
     ui.chartWrap.hidden = !piChart;
     ui.zeroRow.hidden = !waves;
     fsHost.classList.toggle('charted', piChart);
-    ui.piToggle.checked = piChart; ui.waveToggle.checked = waves; ui.gapToggle.checked = gapView;
+    ui.piToggle.checked = piChart; ui.waveToggle.checked = waves; ui.gapToggle.checked = gapView; ui.psiToggle.checked = psiMode;
     ui.zeros.value = zeroCount; ui.zeroOut.value = ui.zeroOut.textContent = zeroCount;
     if (piChart) layoutChart();
     schedule();
@@ -636,11 +933,11 @@
 
   /* samples of the explicit formula, reused until the range, zero count or width changes */
   function waveSamples(X, K, cols) {
-    var key = X + '|' + K + '|' + cols;
+    var key = X + '|' + K + '|' + cols + '|' + (psiMode ? 'psi' : 'pi');
     if (waveCache.key === key) return waveCache;
     var xs = new Float64Array(cols + 1), ys = new Float64Array(cols + 1), top = 0;
     for (var c = 0; c <= cols; c++) {
-      var x = 2 + (X - 2) * c / cols, y = explicitPi(x, K);
+      var x = 2 + (X - 2) * c / cols, y = explicitAt(x, K);
       xs[c] = x; ys[c] = y; if (y > top) top = y;
     }
     return (waveCache = { key: key, xs: xs, ys: ys, top: top });
@@ -653,14 +950,14 @@
     chartAt = ts;
     var X = Math.max(Math.min(T.N, 16), Math.min(T.N, Math.floor(Math.pow(2, L) + 1e-6)));
     var padL = 46, padR = 10, padT = 8, padB = 22, pw = CW - padL - padR, ph = CH - padT - padB;
-    var count = piAt(X), smooth = Li(X), w = waves ? waveSamples(X, zeroCount, Math.round(pw * (playing ? 1 : 2))) : null;
+    var count = countAt(X), smooth = smoothAt(X), w = waves ? waveSamples(X, zeroCount, Math.round(pw * (playing ? 1 : 2))) : null;
     var accent = cssVar('--accent', '#d4a84b'), c = cctx, k, x, y, step, xa, xb;
     var sx = [], sy = [], wy = null, env = [];     /* staircase and waves as points, in the units being shown */
-    var val = gapView ? function (x, y) { return y - Li(x); } : function (x, y) { return y; };
+    var val = gapView ? function (x, y) { return y - smoothAt(x); } : function (x, y) { return y; };
 
     /* the staircase: every step when they fit; otherwise each pixel column spans the counts inside it */
     sx.push(0); sy.push(0);
-    if (count <= pw) {
+    if (!psiMode && count <= pw) {
       for (k = 0; k < count; k++) { x = T.P[k]; sx.push(x, x); sy.push(val(x, k), val(x, k + 1)); }
       sx.push(X); sy.push(val(X, count));
     } else {
@@ -668,19 +965,19 @@
         xb = X * k / pw;
         if (gapView) {                         /* the gap's low and high inside the column, from a few samples */
           var gl = Infinity, gh = -Infinity;
-          for (var q = 1; q <= 6; q++) { x = xa + (xb - xa) * q / 6; y = piAt(x) - Li(x); if (y < gl) gl = y; if (y > gh) gh = y; }
+          for (var q = 1; q <= 6; q++) { x = xa + (xb - xa) * q / 6; y = countAt(x) - smoothAt(x); if (y < gl) gl = y; if (y > gh) gh = y; }
           sx.push(xb, xb); sy.push(gl, gh);
         }
-        else { sx.push(xb); sy.push(piAt(xb)); }
+        else { sx.push(xb); sy.push(countAt(xb)); }
       }
     }
     if (w) { wy = new Float64Array(w.ys.length); for (k = 0; k < wy.length; k++) wy[k] = val(w.xs[k], w.ys[k]); }
-    /* Schoenfeld: if the Riemann Hypothesis holds, |π(x) − li(x)| < √x · ln x / 8π from x = 2657 on */
-    if (gapView && X > 2657) for (k = 0; k <= pw; k++) { x = 2657 + (X - 2657) * k / pw; if (x >= 2657) env.push(x); }
+    var from = rhFrom();
+    if (gapView && X > from) for (k = 0; k <= pw; k++) env.push(from + (X - from) * k / pw);
 
     var lo = 0, hi = 1, grow = function (v) { if (v < lo) lo = v; if (v > hi) hi = v; };
     sy.forEach(grow); if (wy) wy.forEach(grow);
-    if (gapView) { hi = Math.max(hi, 1); lo = Math.min(lo, -1); if (env.length) { grow(Math.sqrt(X) * Math.log(X) / (8 * Math.PI)); grow(-Math.sqrt(X) * Math.log(X) / (8 * Math.PI)); } }
+    if (gapView) { hi = Math.max(hi, 1); lo = Math.min(lo, -1); if (env.length) { grow(rhBound(X)); grow(-rhBound(X)); } }
     else grow(smooth);
     var pad = (hi - lo) * 0.06; hi += pad; if (gapView) lo -= pad;
     var px = function (x) { return padL + x / X * pw; }, py = function (y) { return padT + (hi - y) / (hi - lo) * ph; };
@@ -711,13 +1008,13 @@
     /* Li(x): a curve, or in the gap view the zero line itself */
     c.beginPath();
     if (gapView) { c.moveTo(px(2), py(0)); c.lineTo(px(X), py(0)); }
-    else for (k = 0; k <= pw; k++) { x = 2 + (X - 2) * k / pw; if (k) c.lineTo(px(x), py(Li(x))); else c.moveTo(px(x), py(0)); }
+    else for (k = 0; k <= pw; k++) { x = 2 + (X - 2) * k / pw; if (k) c.lineTo(px(x), py(smoothAt(x))); else c.moveTo(px(x), py(0)); }
     c.strokeStyle = accent; c.lineWidth = 1.6; c.setLineDash([5, 4]); c.stroke();
 
     if (env.length) {
       [1, -1].forEach(function (sign) {
         c.beginPath();
-        env.forEach(function (x, i) { var e = sign * Math.sqrt(x) * Math.log(x) / (8 * Math.PI); if (i) c.lineTo(px(x), py(e)); else c.moveTo(px(x), py(e)); });
+        env.forEach(function (x, i) { var e = sign * rhBound(x); if (i) c.lineTo(px(x), py(e)); else c.moveTo(px(x), py(e)); });
         c.strokeStyle = muted; c.lineWidth = 1; c.setLineDash([2, 3]); c.stroke();
       });
     }
@@ -740,16 +1037,19 @@
 
     /* the selected prime sits at the top of its own step */
     if (sel > 0 && T.P[sel] <= X) {
-      c.beginPath(); c.arc(px(T.P[sel]), py(val(T.P[sel], sel + 1)), 4, 0, TAU);
+      c.beginPath(); c.arc(px(T.P[sel]), py(val(T.P[sel], countAt(T.P[sel]))), 4, 0, TAU);
       c.fillStyle = genColor(T.gen[sel]); c.fill(); c.strokeStyle = ink; c.lineWidth = 1.2; c.stroke();
     }
     c.restore();
 
-    var items = [[ink, '', gapView ? 'π(x) − Li(x) at ' + fmt(X) + ': ' + signed(count - smooth) : 'π(' + fmt(X) + ') = ' + fmt(count)],
-                 [accent, 'dash', gapView ? 'Li(x)' : 'Li = ' + fmt(Math.round(smooth))]];
+    var fn = psiMode ? 'ψ' : 'π', sm = psiMode ? 'x' : 'Li', fc = psiMode ? function (v) { return fmt(Math.round(v)); } : fmt;
+    var items = [[ink, '', gapView ? fn + '(x) − ' + sm + ' at ' + fmt(X) + ': ' + signed(count - smooth) : fn + '(' + fmt(X) + ') = ' + fc(count)],
+                 [accent, 'dash', gapView ? sm + (psiMode ? '' : '(x)') : sm + ' = ' + fmt(Math.round(smooth))]];
     if (w) items.push([waveColor(), '', zeroCount + (zeroCount === 1 ? ' zero' : ' zeros') + ': ' +
                        (gapView ? signed : function (v) { return v.toFixed(1); })(val(X, w.ys[w.ys.length - 1]))]);
     if (env.length) items.push([muted, 'dot', 'RH bound']);
+    /* the primes so far, fed back into Euler's product: ∏ 1/(1 − p⁻²) → ζ(2) = π²/6 */
+    if (!psiMode && !gapView) items.push([paper, '', '∏ 1/(1 − p⁻²) = ' + Math.exp(T.euler[count]).toFixed(5) + ' → π²/6 = 1.64493']);
     var key = items.map(function (it) { return it[2]; }).join('|');
     if (ui.chartKey._t !== key) {
       ui.chartKey._t = key; ui.chartKey.textContent = '';
@@ -924,10 +1224,14 @@
     syncLegend(); writeHash(); schedule();
   });
   ui.ringToggle.addEventListener('change', function () { ringsByValue = ui.ringToggle.checked; writeHash(); schedule(); });
+  function syncPlaneRows() { ui.planeRow.hidden = !wholeLines; ui.solidRow.hidden = !(wholeLines && fillPlanes); }
+  ui.lineToggle.addEventListener('change', function () { wholeLines = ui.lineToggle.checked; syncPlaneRows(); writeHash(); schedule(); });
+  ui.planeToggle.addEventListener('change', function () { fillPlanes = ui.planeToggle.checked; syncPlaneRows(); writeHash(); schedule(); });
+  ui.solidToggle.addEventListener('change', function () { oneSolid = ui.solidToggle.checked; writeHash(); schedule(); });
   ui.fillToggle.addEventListener('change', function () { fillFans = ui.fillToggle.checked; writeHash(); schedule(); });
   /* the waves are drawn on the chart, so turning them on brings the chart with them */
   ui.piToggle.addEventListener('change', function () {
-    piChart = ui.piToggle.checked; if (!piChart) waves = gapView = false;
+    piChart = ui.piToggle.checked; if (!piChart) waves = gapView = psiMode = false;
     showChart(); writeHash();
   });
   ui.waveToggle.addEventListener('change', function () {
@@ -938,6 +1242,10 @@
     gapView = ui.gapToggle.checked; if (gapView) piChart = true;
     showChart(); writeHash();
   });
+  ui.psiToggle.addEventListener('change', function () { psiMode = ui.psiToggle.checked; if (psiMode) piChart = true; showChart(); writeHash(); });
+  ui.zetaToggle.addEventListener('change', function () { zetaPlane = ui.zetaToggle.checked; showZeta(); writeHash(); });
+  ui.zt.addEventListener('input', function () { zetaTop = +ui.zt.value; ui.ztOut.value = ui.ztOut.textContent = zetaTop; put(ui.checkOut, ''); writeHash(); schedule(); });
+  ui.checkBtn.addEventListener('click', function () { put(ui.checkOut, 'Checking…'); setTimeout(checkZeros, 20); });
   ui.zeros.addEventListener('input', function () {
     zeroCount = +ui.zeros.value; ui.zeroOut.value = ui.zeroOut.textContent = zeroCount;
     writeHash(); schedule();
@@ -1194,9 +1502,14 @@
       (ringsByValue ? '&rings=value' : params.get('rings') ? '&rings=log' : '') +
       (genSel ? '&gen=' + genList().join(',') : params.get('gen') ? '&gen=all' : '') +
       (!fillFans ? '&fill=0' : params.get('fill') === '0' ? '&fill=1' : '') +   /* likewise for fill=0 in the query */
+      (oneSolid ? '&solid=1' : params.get('solid') ? '&solid=0' : '') +
+      (fillPlanes ? '&planes=1' : params.get('planes') ? '&planes=0' : '') +
+      (wholeLines ? '&lines=1' : params.get('lines') ? '&lines=0' : '') +
       (piChart ? '&pi=1' : params.get('pi') ? '&pi=0' : '') +
       (waves ? '&zeros=' + zeroCount : params.get('zeros') ? '&zeros=0' : '') +
-      (gapView ? '&gap=1' : params.get('gap') ? '&gap=0' : '');
+      (gapView ? '&gap=1' : params.get('gap') ? '&gap=0' : '') +
+      (psiMode ? '&psi=1' : params.get('psi') ? '&psi=0' : '') +
+      (zetaPlane ? '&zeta=' + zetaTop : params.get('zeta') ? '&zeta=0' : '');
     try { window.history.replaceState(null, '', '#' + h); } catch (e) { /* sandboxed */ }
   }
 
@@ -1218,11 +1531,18 @@
   fillFans = (hp.get('fill') || params.get('fill')) !== '0';
   genSel = parseGens(hp.get('gen') || params.get('gen'));
   ringsByValue = (hp.get('rings') || params.get('rings')) === 'value';
+  wholeLines = (hp.get('lines') || params.get('lines')) === '1';
+  fillPlanes = (hp.get('planes') || params.get('planes')) === '1';
+  oneSolid = (hp.get('solid') || params.get('solid')) === '1';
   var startZeros = +(hp.get('zeros') || params.get('zeros') || 0);
   waves = startZeros >= 1 && startZeros % 1 === 0;
   if (waves) zeroCount = Math.min(startZeros, ZERO_MAX);
   gapView = (hp.get('gap') || params.get('gap')) === '1';
-  piChart = waves || gapView || (hp.get('pi') || params.get('pi')) === '1';
+  psiMode = (hp.get('psi') || params.get('psi')) === '1';
+  piChart = waves || gapView || psiMode || (hp.get('pi') || params.get('pi')) === '1';
+  var startZeta = +(hp.get('zeta') || params.get('zeta') || 0);
+  zetaPlane = startZeta >= 30;
+  if (zetaPlane) zetaTop = Math.min(390, Math.round(startZeta / 10) * 10);
 
   bound = startBound;
   T = build(bound > BigInt(TREE_MAX) ? TREE_MAX : Number(bound)); cnt = new Uint32Array(T.n);
@@ -1230,6 +1550,8 @@
   ui.rootToggle.checked = rootP === 2;
   ui.fillToggle.checked = fillFans;
   ui.ringToggle.checked = ringsByValue;
+  ui.lineToggle.checked = wholeLines;
+  ui.planeToggle.checked = fillPlanes; ui.solidToggle.checked = oneSolid; syncPlaneRows();
   ui.bound.value = fmtBig(bound);
   showStats();
   /* a link never starts the CPU-heavy count on its own */
@@ -1241,6 +1563,7 @@
   else window.addEventListener('resize', layout);
   layout();
   showChart();
+  showZeta();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { font = getComputedStyle(document.body).fontFamily || font; ui.chain._t = ''; schedule(); });
 
   var startOk = startP >= 2 && startP % 1 === 0 && startP <= TREE_MAX;

@@ -87,6 +87,8 @@ progress[hidden], .ghost[hidden] { display: none; }
 #bound { flex-basis: 250px; font-size: 15px; }   /* fits the full 25-digit limit; Go wraps below it in the sidebar */
 .check { display: flex; align-items: center; gap: 10px; font-size: 14px; line-height: 1.35; cursor: pointer; }
 .check input { flex: none; width: 18px; height: 18px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.check.sub { padding-left: 28px; }
+.check[hidden] { display: none; }
 .waves { display: flex; flex-direction: column; gap: 12px; }
 .zero-row .row { display: flex; align-items: center; gap: 10px; }
 .zero-row output { min-width: 3ch; text-align: right; font-size: 14px; font-variant-numeric: tabular-nums; }
@@ -100,6 +102,12 @@ progress[hidden], .ghost[hidden] { display: none; }
 .chart-key i.dash { border-top-style: dashed; }
 .is-full .chart { width: var(--side); max-width: none; flex: none; margin: 10px 0 0; }
 .stage-col.is-full.charted { --side: min(calc(100vw - 32px), calc((100vh - 128px) / 1.42)); }
+.stage-col.is-full.zeta-on { --side: min(calc(100vw - 32px), calc((100vh - 128px) / 1.4)); }
+.stage-col.is-full.charted.zeta-on { --side: min(calc(100vw - 32px), calc((100vh - 160px) / 1.8)); }
+#zplane { aspect-ratio: 3 / 1; }
+.zeta-key { display: block; }
+#checkBtn { margin-top: 10px; }
+#checkOut { margin-top: 6px; }
 
 .ghost { align-self: flex-start; font-size: 14px; color: var(--ink-2); }
 
