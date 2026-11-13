@@ -41,9 +41,12 @@
     lineToggle: $('lineToggle'), planeToggle: $('planeToggle'), planeRow: $('planeRow'), solidToggle: $('solidToggle'), solidRow: $('solidRow'), piToggle: $('piToggle'), waveToggle: $('waveToggle'), gapToggle: $('gapToggle'), zeroRow: $('zeroRow'), zeros: $('zeros'), zeroOut: $('zeroOut'),
     chartWrap: $('chartWrap'), chartKey: $('chartKey'), chart: $('pichart'), psiToggle: $('psiToggle'),
     zetaToggle: $('zetaToggle'), zetaRow: $('zetaRow'), zt: $('zt'), ztOut: $('ztOut'), checkBtn: $('checkBtn'), checkOut: $('checkOut'),
-    zetaWrap: $('zetaWrap'), zetaKey: $('zetaKey'), zplane: $('zplane')
+    zetaWrap: $('zetaWrap'), zetaKey: $('zetaKey'), zplane: $('zplane'),
+    fdivToggle: $('fdivToggle'), stackToggle: $('stackToggle'), stackRow: $('stackRow'), stackQ: $('stackQ'), sh: $('sh'), shOut: $('shOut'),
+    progToggle: $('progToggle'), progLabel: $('progLabel'), stackCheck: $('stackCheck'), stackOut: $('stackOut'), stackWrap: $('stackWrap'), stackKey: $('stackKey'), lstack: $('lstack'),
+    curveToggle: $('curveToggle'), curveRow: $('curveRow'), curveM: $('curveM'), curveWrap: $('curveWrap'), curveKey: $('curveKey'), fcurve: $('fcurve')
   };
-  var cctx = ui.chart.getContext('2d'), zctx = ui.zplane.getContext('2d');
+  var cctx = ui.chart.getContext('2d'), zctx = ui.zplane.getContext('2d'), kctx = ui.lstack.getContext('2d'), fctx = ui.fcurve.getContext('2d');
 
   var store = {
     get: function (k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } },
@@ -101,6 +104,12 @@
       fans[gen[i] + 1].push(i);
     }
 
+    /* which primes divide a Fermat number: p | F_j exactly when 2^(2^j) ≡ −1 mod p, and j is below the power of 2 in p − 1 */
+    var fdiv = new Int8Array(n), fdivList = [];
+    for (i = 1; i < n; i++) {
+      var pp = P[i], x2 = 2 % pp, left = pp - 1;
+      for (j = 0; left % 2 === 0; j++, left /= 2) { if (x2 === pp - 1) { fdiv[i] = j + 1; fdivList.push(i); break; } x2 = x2 * x2 % pp; }
+    }
     /* running sums over the primes in order: Σ ln p for ψ(x), and Σ −ln(1 − p⁻²) for the Euler product */
     var lnSum = new Float64Array(n + 1), euler = new Float64Array(n + 1);
     for (i = 0; i < n; i++) { lnSum[i + 1] = lnSum[i] + Math.log(P[i]); euler[i + 1] = euler[i] - Math.log(1 - 1 / (P[i] * P[i])); }
@@ -113,7 +122,7 @@
       return out;
     };
     return { exp: exp, N: N, P: P, n: n, idx: idx, par: par, gen: gen, kids: kids, byGen: byGen, fans: fans, lg: lg, ang: ang,
-             deep: deep, maxGen: gen[deep], leaves: leaves, factor: factor, lnSum: lnSum, euler: euler };
+             deep: deep, maxGen: gen[deep], leaves: leaves, factor: factor, lnSum: lnSum, euler: euler, fdiv: fdiv, fdivList: fdivList };
   }
 
   /* ---------- state ---------- */
@@ -130,7 +139,7 @@
   var playing = false, lastTs = 0, sel = -1, shown = 0, shownAt = 0;
   var bound = BigInt(8192);                      /* the visitor's upper limit; T stops at TREE_MAX */
   var near = null;                               /* { v, lo, hi }: a non-prime search and the primes either side */
-  var rootP = 0, rootKids = null, marked = null; /* root=p filter: its children, and a per-prime "stay bright" flag */
+  var rootP = 0, marked = null;                  /* root=p filter, and a per-prime "stay bright" flag */
   var genSel = null;                             /* generations on show as { g: 1 }; null means all */
   var ringsByValue = false;                      /* ring radius follows a generation's largest prime itself, not its log */
   var fillFans = true;                           /* shade the sheet between each parent's children */
@@ -138,6 +147,10 @@
   var fillPlanes = false;                        /* shade the triangle of every three primes in a row on that line */
   var PLANE_FILL = [0, 0.07, 0.16, 0.3];         /* by how many layers the triangle spans: flat 2D, tilted 3D, three layers */
   var wholeLines = false;                        /* one line through all the primes in ascending order, instead of the edges */
+  var fermatOnly = false;                        /* light only the primes that divide a Fermat number */
+  var stackOn = false, stackK = 4, stackTop = 40, progOn = false;   /* the L-functions mod 2^stackK, and the chart of primes ≡ 1 mod it */
+  var curveOn = false, curveM = 4;               /* Fermat curves x^m + y^m = 1 over finite fields */
+  var hl = null;                                 /* what the highlight shows: { list, label, note, item } */
   var psiMode = false;                           /* weigh each prime by ln p: Chebyshev's ψ(x) in place of π(x) */
   var zetaPlane = false, zetaTop = 120;          /* the map of ζ(s) across the strip, up to height zetaTop */
   var piChart = false, waves = false, gapView = false, zeroCount = 50;   /* the π(x) chart, Riemann's waves, and π(x) − Li(x) */
@@ -274,6 +287,8 @@
     for (i = 1; i < T.n; i++) buildEdge(i);
     if (piChart) layoutChart();
     if (zetaPlane) layoutZeta();
+    if (stackOn) layoutStack();
+    if (curveOn) layoutCurve();
     clampView(); schedule();
   }
 
@@ -478,7 +493,7 @@
       ctx.fillStyle = paper; ctx.fillText(String(T.P[i]), SX[i], SY[i] + 0.5 * scale);
     }
 
-    put(ui.chainLabel, listing ? 'Hanging directly from ' + rootP : 'Line of descent');
+    put(ui.chainLabel, listing ? hl.label : 'Line of descent');
     if (pair) { drawTags(near.lo, near.hi); describeNear(); }
     else if (listing) describeRoot(m);
     else describe(f, picked, m);
@@ -486,6 +501,8 @@
     put(ui.count, fmt(m) + (m === 1 ? ' prime' : ' primes'));
     drawChart(ts);
     drawZeta();
+    drawStack();
+    drawCurve();
   }
 
   /* ---------- one solid: the convex hull of the primes ---------- */
@@ -639,6 +656,7 @@
   }
 
   function put(el, text) { if (el._t !== text) { el._t = text; el.textContent = text; } }
+  function sub(e) { var d = '₀₁₂₃₄₅₆₇₈₉'; return String(e).split('').map(function (c) { return d[+c]; }).join(''); }
   function sup(e) { var d = '⁰¹²³⁴⁵⁶⁷⁸⁹'; return e === 1 ? '' : String(e).split('').map(function (c) { return d[+c]; }).join(''); }
   function fmt(n) { return n.toLocaleString('en-US'); }
 
@@ -676,10 +694,9 @@
 
   function describeRoot(m) {
     var LIST_MAX = 12;
-    var found = rootKids.filter(function (i) { return i < m; }).map(function (i) { return T.P[i]; });
-    put(ui.chain, found.length ? found.slice(0, LIST_MAX).join(', ') + (found.length > LIST_MAX ? ', …' : '') : m >= T.n ? 'None' : 'None yet');
-    setDetail(fmt(found.length) + ' of ' + fmt(T.n) + ' primes up to ' + fmt(T.N) +
-      (rootP === 2 ? '\nFermat primes: p − 1 is a power of 2' : ''));
+    var found = hl.list.filter(function (i) { return i < m; });
+    put(ui.chain, found.length ? found.slice(0, LIST_MAX).map(hl.item).join(', ') + (found.length > LIST_MAX ? ', …' : '') : m >= T.n ? 'None' : 'None yet');
+    setDetail(fmt(found.length) + ' of ' + fmt(T.n) + ' primes up to ' + fmt(T.N) + (hl.note ? '\n' + hl.note : ''));
   }
 
   function setDetail(text) {
@@ -810,11 +827,13 @@
     for (var k = 0; k < K; k++) { var g = zs[k]; v -= 2 * r * (0.5 * Math.cos(g * u) + g * Math.sin(g * u)) / (0.25 + g * g); }
     return v;
   }
-  function countAt(x) { return psiMode ? psiAt(x) : piAt(x); }
-  function smoothAt(x) { return psiMode ? x : Li(x); }
-  function explicitAt(x, K) { return psiMode ? explicitPsi(x, K) : explicitPi(x, K); }
+  /* what the chart counts: every prime (π), every prime power by weight (ψ), or only those ≡ 1 mod 2^k */
+  function chartMode() { return progOn && stackOn ? 'prog' : psiMode ? 'psi' : 'pi'; }
+  function countAt(x) { var m = chartMode(); return m === 'prog' ? psiProgAt(x) : m === 'psi' ? psiAt(x) : piAt(x); }
+  function smoothAt(x) { var m = chartMode(); return m === 'prog' ? x / (1 << (stackK - 1)) : m === 'psi' ? x : Li(x); }
+  function explicitAt(x, K) { var m = chartMode(); return m === 'prog' ? explicitProg(x) : m === 'psi' ? explicitPsi(x, K) : explicitPi(x, K); }
   /* Schoenfeld's bounds under the Riemann Hypothesis: |π − li| < √x ln x / 8π from 2657, |ψ − x| < √x ln²x / 8π from 73.2 */
-  function rhFrom() { return psiMode ? 73.2 : 2657; }
+  function rhFrom() { var m = chartMode(); return m === 'prog' ? Infinity : m === 'psi' ? 73.2 : 2657; }
   function rhBound(x) { var l = Math.log(x); return Math.sqrt(x) * l * (psiMode ? l : 1) / (8 * Math.PI); }
 
   /* ---------- the zeta plane: ζ(s) off the line, and a count of its zeros ---------- */
@@ -942,6 +961,382 @@
     schedule();
   }
 
+  /* ---------- Fermat curves over finite fields, where the Riemann Hypothesis is a theorem ---------- */
+
+  function powmod(b, e, p) { var r = 1; b %= p; while (e > 0) { if (e & 1) r = r * b % p; b = b * b % p; e = Math.floor(e / 2); } return r; }
+  function primitiveRoot(p) {
+    var fs = T.factor(p - 1);
+    for (var g = 2; g < p; g++) {
+      var ok = true;
+      for (var i = 0; i < fs.length; i++) if (powmod(g, (p - 1) / fs[i][0], p) === 1) { ok = false; break; }
+      if (ok) return g;
+    }
+    return 1;
+  }
+  /* The curve x^m + y^m = 1 over F_p, for p ≡ 1 mod m. Weil (1949): its zeta function has 2g = (m−1)(m−2)
+     zeros, the Jacobi sums α = −J(χ^a, χ^b) with a, b, a + b ≢ 0 mod m, and each has |α| = √p exactly.
+     The number of points is then p + 1 − Σα, which is checked here against a direct count. */
+  function fermatCurve(p, m) {
+    var g = primitiveRoot(p), ind = new Uint8Array(p), u = 1, i, j, a, b;
+    for (i = 0; i < p - 1; i++) { ind[u] = i % m; u = u * g % p; }
+    var H = new Int32Array(m * m);
+    for (u = 2; u < p; u++) H[ind[u] * m + ind[p + 1 - u]]++;
+    var cs = new Float64Array(m), sn = new Float64Array(m);
+    for (i = 0; i < m; i++) { cs[i] = Math.cos(TAU * i / m); sn[i] = Math.sin(TAU * i / m); }
+    var n = (m - 1) * (m - 2), re = new Float64Array(n), im = new Float64Array(n), k = 0, sum = 0, dev = 0, root = Math.sqrt(p);
+    for (a = 1; a < m; a++) for (b = 1; b < m; b++) {
+      if ((a + b) % m === 0) continue;
+      var jr = 0, ji = 0;
+      for (i = 0; i < m; i++) for (j = 0; j < m; j++) { var h = H[i * m + j]; if (h) { var w = (a * i + b * j) % m; jr += h * cs[w]; ji += h * sn[w]; } }
+      re[k] = -jr; im[k++] = -ji; sum -= jr;
+      dev = Math.max(dev, Math.abs(Math.hypot(jr, ji) - root) / root);
+    }
+    /* the direct count uses no characters: every (x, y) with x^m + y^m = 1, plus the points at infinity */
+    var pw = new Int32Array(p), x, N;
+    for (x = 0; x < p; x++) pw[powmod(x, m, p)]++;
+    N = pw[p - 1];
+    for (u = 0; u < p; u++) N += pw[u] * pw[(p + 1 - u) % p];
+    return { p: p, i: T.idx[p], re: re, im: im, points: N, ok: Math.abs(N - (p + 1 - sum)) < 1e-6, dev: dev };
+  }
+
+  var CURVE_MAX = 20000, curveCache = { m: 0, N: 0, next: 0, list: [], bad: 0, dev: 0 };
+  function curveData(limit) {
+    var c = curveCache;
+    if (c.m !== curveM || c.N !== T.N) c = curveCache = { m: curveM, N: T.N, next: curveM + 1, list: [], bad: 0, dev: 0 };
+    for (; c.next <= limit; c.next += c.m) if (T.idx[c.next] >= 0) {
+      var r = fermatCurve(c.next, c.m);
+      c.list.push(r); if (!r.ok) c.bad++; if (r.dev > c.dev) c.dev = r.dev;
+    }
+    return c;
+  }
+
+  var FW = 0, FH = 0, curveDrawn = '';
+  function layoutCurve() {
+    var w = ui.fcurve.clientWidth;
+    if (!w) return;
+    FW = w; FH = Math.round(w / 2);
+    ui.fcurve.width = Math.round(FW * dpr); ui.fcurve.height = Math.round(FH * dpr);
+    curveDrawn = '';
+  }
+  function drawCurve() {
+    if (!curveOn || !FW) return;
+    var limit = Math.min(T.N, CURVE_MAX, Math.floor(Math.pow(2, L) + 1e-6)), data = curveData(limit), list = data.list, n = 0, k, j, e;
+    while (n < list.length && list[n].p <= limit) n++;
+    var key = curveM + '|' + n + '|' + FW + '|' + theme + '|' + sel + '|' + T.N;
+    if (key === curveDrawn) return;
+    curveDrawn = key;
+    var c = fctx, genus = (curveM - 1) * (curveM - 2) / 2, top = Math.max(limit, curveM + 1);
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.clearRect(0, 0, FW, FH);
+    c.font = '11px ' + font; c.lineWidth = 1;
+
+    /* left: every zero in the plane; the zeros of the curve over F_p lie on the circle of radius √p */
+    var side = FH - 16, cx0 = 8 + side / 2, cy0 = FH / 2, R = side / 2 - 4, sc = R / Math.sqrt(top), dot = n > 400 ? 1.2 : n > 60 ? 1.8 : 2.6;
+    c.strokeStyle = line; c.beginPath(); c.moveTo(cx0 - R, cy0); c.lineTo(cx0 + R, cy0); c.moveTo(cx0, cy0 - R); c.lineTo(cx0, cy0 + R); c.stroke();
+    c.beginPath(); c.arc(cx0, cy0, R, 0, TAU); c.strokeStyle = line2; c.stroke();
+    for (k = 0; k < n; k++) {
+      e = list[k];
+      var color = genColor(T.gen[e.i]), picked = e.i === sel;
+      if (n <= 120 || picked) { c.beginPath(); c.arc(cx0, cy0, Math.sqrt(e.p) * sc, 0, TAU); c.strokeStyle = picked ? ink : color; c.globalAlpha = picked ? 1 : 0.3; c.lineWidth = picked ? 1.4 : 1; c.stroke(); c.globalAlpha = 1; }
+      c.fillStyle = color;
+      for (j = 0; j < e.re.length; j++) c.fillRect(cx0 + e.re[j] * sc - dot / 2, cy0 - e.im[j] * sc - dot / 2, dot, dot);
+    }
+    c.fillStyle = muted; c.textAlign = 'center'; c.textBaseline = 'bottom';
+    c.fillText('radius √' + fmt(top), cx0, cy0 - R - 1 > 12 ? cy0 - R + 13 : 12);
+
+    /* right: points on the curve minus p + 1, against the bound 2g√p that those circles force */
+    var x0 = 8 + side + 58, x1 = FW - 10, y0 = 12, y1 = FH - 24, mid = (y0 + y1) / 2, span = 2 * genus * Math.sqrt(top) * 1.08;
+    var qx = function (p) { return x0 + p / top * (x1 - x0); }, qy = function (v) { return mid - v / span * (y1 - y0) / 2; };
+    if (x1 - x0 > 80) {
+      var step = niceStep(top, Math.max(2, Math.floor((x1 - x0) / 80)));
+      c.textAlign = 'center'; c.textBaseline = 'top'; c.fillStyle = muted;
+      for (k = step; k <= top; k += step) { c.beginPath(); c.moveTo(qx(k), y0); c.lineTo(qx(k), y1); c.strokeStyle = line; c.stroke(); c.fillText(fmtAxis(k), qx(k), y1 + 6); }
+      step = niceStep(2 * span, 4);
+      c.textAlign = 'right'; c.textBaseline = 'middle';
+      for (k = -Math.floor(span / step) * step; k <= span; k += step) { c.beginPath(); c.moveTo(x0, qy(k)); c.lineTo(x1, qy(k)); c.strokeStyle = k ? line : line2; c.stroke(); c.fillText((k < 0 ? '−' : '') + fmtAxis(Math.abs(k)), x0 - 8, qy(k)); }
+      [1, -1].forEach(function (sign) {
+        c.beginPath();
+        for (k = 0; k <= 120; k++) { var p = top * k / 120, v = sign * 2 * genus * Math.sqrt(p); if (k) c.lineTo(qx(p), qy(v)); else c.moveTo(qx(p), qy(v)); }
+        c.strokeStyle = muted; c.setLineDash([2, 3]); c.stroke(); c.setLineDash([]);
+      });
+      for (k = 0; k < n; k++) {
+        e = list[k];
+        c.beginPath(); c.arc(qx(e.p), qy(e.points - e.p - 1), e.i === sel ? 4 : n > 400 ? 1.3 : 2, 0, TAU);
+        c.fillStyle = genColor(T.gen[e.i]); c.fill();
+        if (e.i === sel) { c.strokeStyle = ink; c.lineWidth = 1.2; c.stroke(); }
+      }
+    }
+    var zeros = n * 2 * genus;
+    put(ui.curveKey, 'x' + sup(curveM) + ' + y' + sup(curveM) + ' = 1 over 𝔽ₚ, for the ' + fmt(n) + (n === 1 ? ' prime' : ' primes') + ' p ≡ 1 mod ' + curveM + ' up to ' + fmt(limit) +
+      ', in the tree’s colors. Left: the ' + fmt(zeros) + ' zeros of their zeta functions; each curve’s ' + 2 * genus + ' lie on a circle of radius √p. ' +
+      'Right: points on the curve minus p + 1, inside the bound ±' + 2 * genus + '√p. ' +
+      (n ? (data.bad ? data.bad + ' point counts disagree with the zeros.' : 'All ' + fmt(n) + ' point counts were checked by counting directly, and every zero is on its circle to ' + Math.min(15, Math.floor(-Math.log10(data.dev || 1e-16))) + ' digits.') : ''));
+  }
+  function showCurve() {
+    ui.curveWrap.hidden = !curveOn; ui.curveRow.hidden = !curveOn;
+    ui.curveToggle.checked = curveOn; ui.curveM.value = curveM;
+    if (curveOn) layoutCurve();
+    schedule();
+  }
+
+  /* ---------- the L-function stack: Dirichlet characters mod 2^k ---------- */
+
+  /* (Z/2^c)* is generated by −1 and 5: n = (−1)^u 5^v, and χ(n) = (−1)^(e·u) · exp(2πi·j·v / 2^(c−2)).
+     Returns the primitive characters of conductor 4, 8, …, 2^k: a table of values, the parity a, and
+     half the argument of the root number ε = τ(χ) / (i^a √q), from the Gauss sum τ. */
+  function charsMod2(k) {
+    var out = [];
+    for (var c = 2; c <= k; c++) {
+      var q = 1 << c, V = Math.max(1, q >> 2), U = new Int8Array(q), Vv = new Int32Array(q), x = 1, v, e, j, n;
+      for (v = 0; v < V; v++) { U[x] = 0; Vv[x] = v; U[q - x] = 1; Vv[q - x] = v; x = x * 5 % q; }
+      for (e = 0; e < 2; e++) for (j = 0; j < V; j++) {
+        if (c === 2 ? !(e === 1 && j === 0) : j % 2 === 0) continue;      /* primitive: χ(5) has full order */
+        var re = new Float64Array(q), im = new Float64Array(q), tr = 0, ti = 0;
+        for (n = 1; n < q; n += 2) { var ang = TAU * j * Vv[n] / V + (e && U[n] ? Math.PI : 0); re[n] = Math.cos(ang); im[n] = Math.sin(ang); }
+        for (n = 1; n < q; n += 2) { var w = TAU * n / q, cw = Math.cos(w), sw = Math.sin(w); tr += re[n] * cw - im[n] * sw; ti += re[n] * sw + im[n] * cw; }
+        out.push({ q: q, a: e, re: re, im: im, half: -Math.atan2(e ? -tr : ti, e ? ti : tr) / 2 });
+      }
+    }
+    return out;
+  }
+  /* Σ_{i≥0} (β + i)^−s by Euler–Maclaurin: the integral, the half term and eight Bernoulli corrections */
+  function emTail(beta, sig, t) {
+    var ln = Math.log(beta), mag = Math.exp((1 - sig) * ln), pr = mag * Math.cos(t * ln), pi = -mag * Math.sin(t * ln);
+    var dr = sig - 1; if (dr === 0 && t === 0) dr = 1e-9;       /* the pole terms cancel across a character, but not as 0/0 */
+    var dd = dr * dr + t * t, sr = (pr * dr + pi * t) / dd, si = (pi * dr - pr * t) / dd;
+    mag = Math.exp(-sig * ln); var nr = mag * Math.cos(t * ln), ni = -mag * Math.sin(t * ln);
+    sr += nr / 2; si += ni / 2;
+    var qr = 1, qi = 0, scale = beta, inv2 = 1 / (beta * beta), k, j, c;
+    for (k = 1; k <= 8; k++) {
+      for (j = (k === 1 ? 0 : 2 * k - 3); j <= 2 * k - 2; j++) { var a = qr * (sig + j) - qi * t, b = qr * t + qi * (sig + j); qr = a; qi = b; }
+      scale *= inv2; c = B2K[k - 1] / FACT[2 * k] * scale;
+      sr += c * (qr * nr - qi * ni); si += c * (qr * ni + qi * nr);
+    }
+    return [sr, si];
+  }
+  /* L(σ + it, χ): the first qM terms, then the rest residue by residue through emTail */
+  function lfun(ch, sig, t) {
+    var q = ch.q, M = Math.max(8, Math.ceil(Math.abs(t) / 2)), sr = 0, si = 0, n, ln, mag, c, s;
+    for (n = 1; n < q * M; n += 2) {
+      var r = n % q; ln = Math.log(n); mag = Math.exp(-sig * ln); c = mag * Math.cos(t * ln); s = -mag * Math.sin(t * ln);
+      sr += ch.re[r] * c - ch.im[r] * s; si += ch.re[r] * s + ch.im[r] * c;
+    }
+    var tr = 0, ti = 0;
+    for (var a = 1; a < q; a += 2) { var tl = emTail(M + a / q, sig, t); tr += ch.re[a] * tl[0] - ch.im[a] * tl[1]; ti += ch.re[a] * tl[1] + ch.im[a] * tl[0]; }
+    ln = Math.log(q); mag = Math.exp(-sig * ln); c = mag * Math.cos(t * ln); s = -mag * Math.sin(t * ln);
+    return [sr + tr * c - ti * s, si + tr * s + ti * c];
+  }
+  /* Im ln Γ(x + iy): eight steps up, then Stirling's series */
+  function imLogGamma(x, y) {
+    var acc = 0, j;
+    for (j = 0; j < 8; j++) acc -= Math.atan2(y, x + j);
+    x += 8;
+    var th = Math.atan2(y, x), r2 = x * x + y * y, ir = x / r2, ii = -y / r2;
+    var i3i = ii * (3 * ir * ir - ii * ii), i3r = ir * (ir * ir - 3 * ii * ii), i2r = ir * ir - ii * ii, i2i = 2 * ir * ii;
+    return acc + (x - 0.5) * th + y * 0.5 * Math.log(r2) - y + ii / 12 - i3i / 360 + (i3r * i2i + i3i * i2r) / 1260;
+  }
+  function lTheta(ch, t) { return t / 2 * Math.log(ch.q / Math.PI) + imLogGamma((0.5 + ch.a) / 2, t / 2); }
+  /* the functional equation makes this real on the line: Z(t, χ) = Re[e^{iθ(t)} ε^{−1/2} L(½ + it, χ)] */
+  function lZ(ch, t) { var v = lfun(ch, 0.5, t), ph = lTheta(ch, t) + ch.half; return v[0] * Math.cos(ph) - v[1] * Math.sin(ph); }
+
+  /* Zeros of every character at once, as sign changes of Z. One table of n^−½ e^{−it ln n}, folded by
+     residue mod 2^k, serves them all. The scan starts on the real axis because a zero can sit very low
+     (one character mod 128 has a zero at height 0.018), and a dip that turns back without crossing is
+     searched for a pair of zeros inside a single step. */
+  function stackZeros(k, H, h) {
+    var q = 1 << k, chars = charsMod2(k), lnq = Math.log(q), t, n, a, ci, i;
+    var Sr = new Float64Array(q), Si = new Float64Array(q), zeros = chars.map(function () { return []; });
+    function allZ(t, out) {
+      var M = Math.max(8, Math.ceil(t / 2));
+      Sr.fill(0); Si.fill(0);
+      for (n = 1; n < q * M; n += 2) { var ln = Math.log(n), mag = 1 / Math.sqrt(n), r = n % q; Sr[r] += mag * Math.cos(t * ln); Si[r] -= mag * Math.sin(t * ln); }
+      var mq = Math.exp(-0.5 * lnq), cq = mq * Math.cos(t * lnq), sq = -mq * Math.sin(t * lnq);
+      for (a = 1; a < q; a += 2) { var tl = emTail(M + a / q, 0.5, t); Sr[a] += tl[0] * cq - tl[1] * sq; Si[a] += tl[0] * sq + tl[1] * cq; }
+      for (ci = 0; ci < chars.length; ci++) {
+        var ch = chars[ci], lr = 0, li = 0;
+        for (a = 1; a < q; a += 2) { var r2 = a % ch.q; lr += ch.re[r2] * Sr[a] - ch.im[r2] * Si[a]; li += ch.re[r2] * Si[a] + ch.im[r2] * Sr[a]; }
+        var ph = lTheta(ch, t) + ch.half;
+        out[ci] = lr * Math.cos(ph) - li * Math.sin(ph);
+      }
+    }
+    function root(ch, lo, hi, flo, fhi) {              /* regula falsi between heights where Z changes sign */
+      var x = lo, fx;
+      for (i = 0; i < 14; i++) {
+        x = (lo * fhi - hi * flo) / (fhi - flo); fx = lZ(ch, x);
+        if (Math.abs(fx) < 1e-11) break;
+        if ((fx < 0) === (flo < 0)) { lo = x; flo = fx; fhi /= 2; } else { hi = x; fhi = fx; flo /= 2; }
+      }
+      return x;
+    }
+    var old = new Float64Array(chars.length), prev = new Float64Array(chars.length), cur = new Float64Array(chars.length), steps = 0;
+    allZ(0, prev);
+    for (t = h; t <= H + h; t += h, steps++) {
+      allZ(t, cur);
+      for (ci = 0; ci < chars.length; ci++) {
+        if ((prev[ci] < 0) !== (cur[ci] < 0)) { var x = root(chars[ci], t - h, t, prev[ci], cur[ci]); if (x < H) zeros[ci].push(x); }
+        else if (steps && (old[ci] < 0) === (prev[ci] < 0) && Math.abs(prev[ci]) < Math.abs(old[ci]) && Math.abs(prev[ci]) < Math.abs(cur[ci])) {
+          var sgn = prev[ci] < 0 ? -1 : 1, lo = t - 2 * h, hi = t, g = 0.6180339887, x1 = hi - g * (hi - lo), x2 = lo + g * (hi - lo);
+          var f1 = sgn * lZ(chars[ci], x1), f2 = sgn * lZ(chars[ci], x2);
+          for (i = 0; i < 24 && f1 > 0 && f2 > 0; i++) {
+            if (f1 < f2) { hi = x2; x2 = x1; f2 = f1; x1 = hi - g * (hi - lo); f1 = sgn * lZ(chars[ci], x1); }
+            else { lo = x1; x1 = x2; f1 = f2; x2 = lo + g * (hi - lo); f2 = sgn * lZ(chars[ci], x2); }
+          }
+          var xm = f1 < f2 ? x1 : x2, fm = Math.min(f1, f2);
+          if (fm < 0) {
+            var za = root(chars[ci], t - 2 * h, xm, old[ci], sgn * fm), zb = root(chars[ci], xm, t, sgn * fm, cur[ci]);
+            if (za < H) zeros[ci].push(za); if (zb < H) zeros[ci].push(zb);
+          }
+        }
+      }
+      var tmp = old; old = prev; prev = cur; cur = tmp;
+    }
+    zeros.forEach(function (z) { z.sort(function (p, r) { return p - r; }); });
+    return { chars: chars, zeros: zeros };
+  }
+
+  /* zeros of L(s, χ) with 0 < Im s < T anywhere in the strip. The completed function Λ satisfies
+     Λ(s) = ε·conj Λ(1 − conj s), so half the contour is enough: N = [θ(T) + Δ arg L]/π, with arg L
+     followed along ½ → 2 → 2 + iT → ½ + iT. */
+  function argTrack(ch, s0, t0, s1, t1) {
+    var z = lfun(ch, s0, t0), prev = Math.atan2(z[1], z[0]), total = 0, u = 0, step = 0.02;
+    while (u < 1 - 1e-12) {
+      var nu = Math.min(1, u + step), zz = lfun(ch, s0 + (s1 - s0) * nu, t0 + (t1 - t0) * nu), a = Math.atan2(zz[1], zz[0]), d = a - prev;
+      while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU;
+      if (Math.abs(d) > 0.8 && step > 1e-6) { step /= 2; continue; }
+      total += d; prev = a; u = nu; step = Math.min(0.02, step * 1.5);
+    }
+    return total;
+  }
+  function lCount(ch, Tz) {
+    var z0 = lfun(ch, 2, 0), z1 = lfun(ch, 2, Tz);      /* |L − 1| < 1 on Re s = 2, so principal values do there */
+    return (lTheta(ch, Tz) + argTrack(ch, 0.5, 0, 2, 0) + Math.atan2(z1[1], z1[0]) - Math.atan2(z0[1], z0[0]) + argTrack(ch, 2, Tz, 0.5, Tz)) / Math.PI;
+  }
+  /* the constant b(χ) of the explicit formula: L′/L at 0 for odd χ; for even χ, where L(0) = 0, what is left after the 1/s pole */
+  function bConst(ch) {
+    var h = 1e-3, p = lfun(ch, h, 0), m = lfun(ch, -h, 0), z = lfun(ch, 0, 0);
+    var d1r = (p[0] - m[0]) / (2 * h), d1i = (p[1] - m[1]) / (2 * h), d2r = (p[0] - 2 * z[0] + m[0]) / (h * h), d2i = (p[1] - 2 * z[1] + m[1]) / (h * h);
+    var nr = ch.a ? d1r : d2r / 2, ni = ch.a ? d1i : d2i / 2, dr = ch.a ? z[0] : d1r, di = ch.a ? z[1] : d1i;
+    return (nr * dr + ni * di) / (dr * dr + di * di);
+  }
+
+  var STACK_H = 80, stackCache = {}, stackBusy = false;
+  /* rows[0] is ζ itself, then the characters by conductor; each row holds its zeros below STACK_H */
+  function buildStack(k) {
+    var st = stackZeros(k, STACK_H, 0.04), rows = [{ q: 1, ch: null, zeros: zerosUpTo(STACK_H).filter(function (z) { return z < STACK_H; }) }], bsum = 0, evens = 0, odds = 0;
+    st.chars.forEach(function (ch, i) { rows.push({ q: ch.q, ch: ch, zeros: st.zeros[i] }); bsum += bConst(ch); if (ch.a) odds++; else evens++; });
+    return { k: k, rows: rows, bsum: bsum, evens: evens, odds: odds };
+  }
+  function stackData(k) {
+    if (stackCache[k]) return stackCache[k];
+    if (!stackBusy) {
+      stackBusy = true;
+      setTimeout(function () { stackCache[k] = buildStack(k); stackBusy = false; waveCache.key = ''; stackDrawn = ''; schedule(); }, 30);
+    }
+    return null;
+  }
+  function stackZerosBelow(data, H) { var out = []; data.rows.forEach(function (r) { for (var i = 0; i < r.zeros.length && r.zeros[i] < H; i++) out.push(r.zeros[i]); }); return out; }
+
+  /* ψ(x; q, 1) = Σ ln p over prime powers p^j ≤ x with p^j ≡ 1 mod q: the primes that can divide F_n when q = 2^(n+2) */
+  var progCache = { q: 0, N: 0 }, progZeros = { key: '', arr: [] };
+  function progData() {
+    var q = 1 << stackK, c = progCache, i;
+    if (c.q === q && c.N === T.N) return c;
+    c = progCache = { q: q, N: T.N, pref: new Float64Array(T.n + 1), list: [], pv: [], pc: [0] };
+    for (i = 0; i < T.n; i++) { var on = T.P[i] % q === 1; c.pref[i + 1] = c.pref[i] + (on ? Math.log(T.P[i]) : 0); if (on) c.list.push(i); }
+    var pows = [];
+    for (i = 1; i < T.n && T.P[i] * T.P[i] <= T.N; i++) for (var pw = T.P[i] * T.P[i]; pw <= T.N; pw *= T.P[i]) if (pw % q === 1) pows.push([pw, Math.log(T.P[i])]);
+    pows.sort(function (a, b) { return a[0] - b[0]; });
+    pows.forEach(function (e) { c.pv.push(e[0]); c.pc.push(c.pc[c.pc.length - 1] + e[1]); });
+    return c;
+  }
+  function psiProgAt(x) {
+    var c = progData(), lo = 0, hi = c.pv.length;
+    while (lo < hi) { var m = (lo + hi) >> 1; if (c.pv[m] <= x) lo = m + 1; else hi = m; }
+    return c.pref[piAt(x)] + c.pc[lo];
+  }
+  /* Its explicit formula sums the one for ψ(x, χ) over every character mod q. The trivial character gives
+     ψ(x) less the powers of 2; each other one gives −Σ x^ρ/ρ − (1 − a) ln x − b(χ) + Σ_m x^(a−2m)/(2m − a).
+     Zeros of χ and of its conjugate pair up, so every zero adds the same 2·Re(x^ρ/ρ) wave as for ζ. */
+  function explicitProg(x) {
+    var data = stackCache[stackK], key = stackK + '|' + stackTop;
+    if (progZeros.key !== key) progZeros = { key: key, arr: stackZerosBelow(data, stackTop) };
+    var u = Math.log(x), r = Math.sqrt(x), half = 0.5 * Math.log(1 - 1 / (x * x)), zs = progZeros.arr;
+    var v = x - Math.log(TAU) - half - Math.floor(Math.log2(x) + 1e-12) * Math.LN2;
+    v -= data.evens * (u + half) + data.bsum - data.odds * 0.5 * Math.log((x + 1) / (x - 1));
+    for (var k = 0; k < zs.length; k++) { var g = zs[k]; v -= 2 * r * (0.5 * Math.cos(g * u) + g * Math.sin(g * u)) / (0.25 + g * g); }
+    return v / (1 << (stackK - 1));
+  }
+
+  var KW = 0, KH = 0, stackDrawn = '';
+  function layoutStack() {
+    var w = ui.lstack.clientWidth;
+    if (!w) return;
+    KW = w; KH = Math.round(w / 2);
+    ui.lstack.width = Math.round(KW * dpr); ui.lstack.height = Math.round(KH * dpr);
+    stackDrawn = '';
+  }
+  function stackColor(q) { return q === 1 ? ink : col[Math.round(Math.log2(q)) - 2]; }
+  function drawStack() {
+    if (!stackOn || !KW) return;
+    var data = stackData(stackK), q = 1 << stackK;
+    if (!data) { put(ui.stackKey, 'Finding the zeros of ' + (q / 2) + ' L-functions…'); return; }
+    var key = stackK + '|' + stackTop + '|' + KW + '|' + theme;
+    if (key === stackDrawn) return;
+    stackDrawn = key;
+    var c = kctx, rows = data.rows, n = rows.length, padL = 40, padR = 12, padT = 10, padB = 22, pw = KW - padL - padR, ph = KH - padT - padB;
+    var dy = Math.min(44, (ph - 8) / n), th = Math.max(1.5, Math.min(dy * 0.72, 13)), shear = th * 1.1, r, k, total = 0, lastQ = 0, first = 0;
+    var px = function (t) { return padL + t / stackTop * (pw - shear); };
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.clearRect(0, 0, KW, KH);
+    c.font = '11px ' + font; c.lineWidth = 1;
+    var labelY = Infinity;
+    var label = function (qq, from, to) {              /* one label per conductor, at the middle of its sheets, where there is room */
+      var y = padT + ph - 4 - (from + to) / 2 * dy - th / 2;
+      if (labelY - y < 12) return;
+      labelY = y;
+      c.fillStyle = muted; c.textAlign = 'right'; c.textBaseline = 'middle';
+      c.fillText(qq === 1 ? 'ζ' : String(qq), padL - 8, y);
+    };
+    /* back to front, so nearer sheets overlap the ones behind */
+    for (r = n - 1; r >= 0; r--) {
+      var row = rows[r], y0 = padT + ph - 4 - r * dy, color = stackColor(row.q), rad = Math.max(0.9, Math.min(2.6, th * 0.32));
+      c.beginPath(); c.moveTo(px(0), y0); c.lineTo(px(stackTop), y0); c.lineTo(px(stackTop) + shear, y0 - th); c.lineTo(px(0) + shear, y0 - th); c.closePath();
+      c.fillStyle = color; c.globalAlpha = 0.13; c.fill();
+      c.strokeStyle = color; c.globalAlpha = 0.4; c.stroke(); c.globalAlpha = 1;
+      c.beginPath();
+      for (k = 0; k < row.zeros.length && row.zeros[k] < stackTop; k++) { var zx = px(row.zeros[k]) + shear / 2, zy = y0 - th / 2; c.moveTo(zx + rad, zy); c.arc(zx, zy, rad, 0, TAU); total++; }
+      c.fillStyle = color; c.fill();
+    }
+    for (r = 0; r <= n; r++) if (r === n || rows[r].q !== lastQ) { if (r) label(lastQ, first, r - 1); if (r < n) { lastQ = rows[r].q; first = r; } }
+    c.fillStyle = muted; c.textAlign = 'center'; c.textBaseline = 'top';
+    var step = niceStep(stackTop, Math.max(2, Math.floor(pw / 80)));
+    for (k = step; k <= stackTop; k += step) c.fillText(fmtAxis(k), px(k), padT + ph + 6);
+    c.textAlign = 'left'; c.fillText('Im s →', padL, padT + ph + 6);
+    put(ui.stackKey, n + ' L-functions, one sheet each: ζ(s) at the front, then the ' + (n - 1) + (n === 2 ? ' character' : ' characters') + ' mod ' + q +
+      ' by conductor. The dots are their ' + fmt(total) + ' zeros below ' + stackTop + ', each on the middle of its sheet, where Re s = ½.');
+  }
+  function checkStack() {
+    var data = stackCache[stackK];
+    if (!data) { put(ui.stackOut, 'Still finding the zeros. Try again in a moment.'); return; }
+    var Tz = stackTop + 0.0137, bad = [], byArg = 0, onLine = 0, clash = true;
+    while (clash) { clash = false; data.rows.forEach(function (r) { r.zeros.forEach(function (z) { if (Math.abs(z - Tz) < 1e-3) clash = true; }); }); if (clash) Tz += 0.0041; }
+    data.rows.forEach(function (r) {
+      var raw = r.ch ? lCount(r.ch, Tz) : countByArgument(Tz).N, n = Math.round(raw), line = 0;
+      while (line < r.zeros.length && r.zeros[line] < Tz) line++;
+      byArg += n; onLine += line;
+      if (n !== line || Math.abs(raw - n) > 0.1) bad.push((r.q === 1 ? 'ζ' : 'a character of conductor ' + r.q) + ' (' + raw.toFixed(2) + ' against ' + line + ')');
+    });
+    put(ui.stackOut, 'Argument principle: ' + fmt(byArg) + ' zeros with 0 < Im s < ' + Tz.toFixed(2) + ' across the ' + data.rows.length + ' L-functions, anywhere in the strip. Sign changes on the line: ' + fmt(onLine) + '. ' +
+      (bad.length ? 'They disagree for ' + bad.join(', ') + '.' : 'They agree for every one, so each of these zeros lies on Re s = ½ and is simple: the generalized Riemann Hypothesis holds here below that height.'));
+  }
+  function showStack() {
+    ui.stackWrap.hidden = !stackOn; ui.stackRow.hidden = !stackOn;
+    ui.stackToggle.checked = stackOn; ui.stackQ.value = 1 << stackK; ui.sh.value = stackTop; ui.shOut.value = ui.shOut.textContent = stackTop;
+    ui.progToggle.checked = progOn; ui.progLabel.textContent = 'Chart only the primes ≡ 1 mod ' + (1 << stackK);
+    if (stackOn) layoutStack();
+    schedule();
+  }
+
   var CW = 0, CH = 0, chartAt = 0, waveCache = { key: '' };
   var compact = window.Intl && Intl.NumberFormat ? new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }) : null;
   function fmtAxis(v) { return v < 10000 || !compact ? fmt(v) : compact.format(v); }
@@ -972,7 +1367,7 @@
 
   /* samples of the explicit formula, reused until the range, zero count or width changes */
   function waveSamples(X, K, cols) {
-    var key = X + '|' + K + '|' + cols + '|' + (psiMode ? 'psi' : 'pi');
+    var key = X + '|' + K + '|' + cols + '|' + chartMode() + '|' + stackK + '|' + stackTop;
     if (waveCache.key === key) return waveCache;
     var xs = new Float64Array(cols + 1), ys = new Float64Array(cols + 1), top = 0;
     for (var c = 0; c <= cols; c++) {
@@ -989,14 +1384,15 @@
     chartAt = ts;
     var X = Math.max(Math.min(T.N, 16), Math.min(T.N, Math.floor(Math.pow(2, L) + 1e-6)));
     var padL = 46, padR = 10, padT = 8, padB = 22, pw = CW - padL - padR, ph = CH - padT - padB;
-    var count = countAt(X), smooth = smoothAt(X), w = waves ? waveSamples(X, zeroCount, Math.round(pw * (playing ? 1 : 2))) : null;
+    var mode = chartMode(), ready = mode !== 'prog' || !!stackData(stackK);     /* the progression's waves wait for its zeros */
+    var count = countAt(X), smooth = smoothAt(X), w = waves && ready ? waveSamples(X, zeroCount, Math.round(pw * (playing ? 1 : 2))) : null;
     var accent = cssVar('--accent', '#d4a84b'), c = cctx, k, x, y, step, xa, xb;
     var sx = [], sy = [], wy = null, env = [];     /* staircase and waves as points, in the units being shown */
     var val = gapView ? function (x, y) { return y - smoothAt(x); } : function (x, y) { return y; };
 
     /* the staircase: every step when they fit; otherwise each pixel column spans the counts inside it */
     sx.push(0); sy.push(0);
-    if (!psiMode && count <= pw) {
+    if (mode === 'pi' && count <= pw) {
       for (k = 0; k < count; k++) { x = T.P[k]; sx.push(x, x); sy.push(val(x, k), val(x, k + 1)); }
       sx.push(X); sy.push(val(X, count));
     } else {
@@ -1081,14 +1477,15 @@
     }
     c.restore();
 
-    var fn = psiMode ? 'ψ' : 'π', sm = psiMode ? 'x' : 'Li', fc = psiMode ? function (v) { return fmt(Math.round(v)); } : fmt;
-    var items = [[ink, '', gapView ? fn + '(x) − ' + sm + ' at ' + fmt(X) + ': ' + signed(count - smooth) : fn + '(' + fmt(X) + ') = ' + fc(count)],
-                 [accent, 'dash', gapView ? sm + (psiMode ? '' : '(x)') : sm + ' = ' + fmt(Math.round(smooth))]];
-    if (w) items.push([waveColor(), '', zeroCount + (zeroCount === 1 ? ' zero' : ' zeros') + ': ' +
+    var fn = mode === 'pi' ? 'π' : 'ψ', arg2 = mode === 'prog' ? '; ' + (1 << stackK) + ', 1' : '', sm = mode === 'pi' ? 'Li' : mode === 'psi' ? 'x' : 'x/' + (1 << (stackK - 1));
+    var fc = mode === 'pi' ? fmt : function (v) { return fmt(Math.round(v)); };
+    var items = [[ink, '', gapView ? fn + '(x' + arg2 + ') − ' + sm + ' at ' + fmt(X) + ': ' + signed(count - smooth) : fn + '(' + fmt(X) + arg2 + ') = ' + fc(count)],
+                 [accent, 'dash', gapView ? sm + (mode === 'pi' ? '(x)' : '') : sm + ' = ' + fmt(Math.round(smooth))]];
+    if (w) items.push([waveColor(), '', (mode === 'prog' ? fmt(progZeros.arr.length) + ' zeros below ' + stackTop : zeroCount + (zeroCount === 1 ? ' zero' : ' zeros')) + ': ' +
                        (gapView ? signed : function (v) { return v.toFixed(1); })(val(X, w.ys[w.ys.length - 1]))]);
     if (env.length) items.push([muted, 'dot', 'RH bound']);
     /* the primes so far, fed back into Euler's product: ∏ 1/(1 − p⁻²) → ζ(2) = π²/6 */
-    if (!psiMode && !gapView) items.push([paper, '', '∏ 1/(1 − p⁻²) = ' + Math.exp(T.euler[count]).toFixed(5) + ' → π²/6 = 1.64493']);
+    if (mode === 'pi' && !gapView) items.push([paper, '', '∏ 1/(1 − p⁻²) = ' + Math.exp(T.euler[count]).toFixed(5) + ' → π²/6 = 1.64493']);
     var key = items.map(function (it) { return it[2]; }).join('|');
     if (ui.chartKey._t !== key) {
       ui.chartKey._t = key; ui.chartKey.textContent = '';
@@ -1281,6 +1678,22 @@
     gapView = ui.gapToggle.checked; if (gapView) piChart = true;
     showChart(); writeHash();
   });
+  ui.fdivToggle.addEventListener('change', function () {
+    fermatOnly = ui.fdivToggle.checked;
+    if (fermatOnly) { sel = -1; clearNear(); }
+    applyRoot(); writeHash(); schedule();
+  });
+  ui.stackToggle.addEventListener('change', function () { stackOn = ui.stackToggle.checked; if (!stackOn) progOn = false; applyRoot(); showStack(); showChart(); writeHash(); });
+  ui.stackQ.addEventListener('change', function () { stackK = Math.round(Math.log2(+ui.stackQ.value)); put(ui.stackOut, ''); applyRoot(); showStack(); writeHash(); });
+  ui.sh.addEventListener('input', function () { stackTop = +ui.sh.value; ui.shOut.value = ui.shOut.textContent = stackTop; put(ui.stackOut, ''); writeHash(); schedule(); });
+  ui.progToggle.addEventListener('change', function () {
+    progOn = ui.progToggle.checked;
+    if (progOn) { piChart = true; sel = -1; clearNear(); }
+    applyRoot(); showChart(); writeHash();
+  });
+  ui.stackCheck.addEventListener('click', function () { put(ui.stackOut, 'Checking…'); setTimeout(checkStack, 20); });
+  ui.curveToggle.addEventListener('change', function () { curveOn = ui.curveToggle.checked; showCurve(); writeHash(); });
+  ui.curveM.addEventListener('change', function () { curveM = +ui.curveM.value; writeHash(); schedule(); });
   ui.psiToggle.addEventListener('change', function () { psiMode = ui.psiToggle.checked; if (psiMode) piChart = true; showChart(); writeHash(); });
   ui.zetaToggle.addEventListener('change', function () { zetaPlane = ui.zetaToggle.checked; showZeta(); writeHash(); });
   ui.zt.addEventListener('input', function () { zetaTop = +ui.zt.value; ui.ztOut.value = ui.ztOut.textContent = zetaTop; put(ui.checkOut, ''); writeHash(); schedule(); });
@@ -1340,13 +1753,18 @@
 
   /* a root outside this tree (not prime, or past the range) leaves every prime lit */
   function applyRoot() {
-    var i = rootP >= 2 && rootP % 1 === 0 && rootP <= T.N ? T.idx[rootP] : -1;
-    rootKids = i >= 0 ? T.kids[i] : null;
-    marked = null;
-    if (!rootKids) return;
+    var i = rootP >= 2 && rootP % 1 === 0 && rootP <= T.N ? T.idx[rootP] : -1, plain = function (k) { return String(T.P[k]); };
+    marked = null; hl = null;
+    /* one highlight at a time: Fermat divisors, then the progression on the chart, then the root filter */
+    if (fermatOnly) hl = { list: T.fdivList, label: 'Dividing a Fermat number', note: 'p divides Fₙ when 2 has order 2ⁿ⁺¹ mod p',
+                           item: function (k) { return T.P[k] + ' | F' + sub(T.fdiv[k] - 1); } };
+    else if (progOn && stackOn) hl = { list: progData().list, label: 'One more than a multiple of ' + (1 << stackK),
+                                       note: stackK >= 4 ? 'Every prime factor of F' + sub(stackK - 2) + ' is one of these' : '', item: plain };
+    else if (i >= 0) hl = { list: T.kids[i], label: 'Hanging directly from ' + rootP, note: rootP === 2 ? 'Fermat primes: p − 1 is a power of 2' : '', item: plain };
+    if (!hl) return;
     marked = new Uint8Array(T.n);
-    marked[i] = 1;
-    rootKids.forEach(function (k) { marked[k] = 1; });
+    if (!fermatOnly && !(progOn && stackOn) && i >= 0) marked[i] = 1;
+    hl.list.forEach(function (k) { marked[k] = 1; });
   }
 
   function setBound(b, animate) {
@@ -1548,7 +1966,10 @@
       (waves ? '&zeros=' + zeroCount : params.get('zeros') ? '&zeros=0' : '') +
       (gapView ? '&gap=1' : params.get('gap') ? '&gap=0' : '') +
       (psiMode ? '&psi=1' : params.get('psi') ? '&psi=0' : '') +
-      (zetaPlane ? '&zeta=' + zetaTop : params.get('zeta') ? '&zeta=0' : '');
+      (zetaPlane ? '&zeta=' + zetaTop : params.get('zeta') ? '&zeta=0' : '') +
+      (stackOn ? '&stack=' + (1 << stackK) + (stackTop !== 40 ? '&sh=' + stackTop : '') + (progOn ? '&prog=1' : '') : params.get('stack') ? '&stack=0' : '') +
+      (curveOn ? '&curve=' + curveM : params.get('curve') ? '&curve=0' : '') +
+      (fermatOnly ? '&fdiv=1' : params.get('fdiv') ? '&fdiv=0' : '');
     try { window.history.replaceState(null, '', '#' + h); } catch (e) { /* sandboxed */ }
   }
 
@@ -1579,6 +2000,15 @@
   gapView = (hp.get('gap') || params.get('gap')) === '1';
   psiMode = (hp.get('psi') || params.get('psi')) === '1';
   piChart = waves || gapView || psiMode || (hp.get('pi') || params.get('pi')) === '1';
+  var startStack = +(hp.get('stack') || params.get('stack') || 0), startSh = +(hp.get('sh') || params.get('sh') || 0), startCurve = +(hp.get('curve') || params.get('curve') || 0);
+  stackOn = [4, 8, 16, 32, 64, 128].indexOf(startStack) >= 0;
+  if (stackOn) stackK = Math.round(Math.log2(startStack));
+  if (startSh >= 10 && startSh <= 80) stackTop = Math.round(startSh / 5) * 5;
+  progOn = stackOn && (hp.get('prog') || params.get('prog')) === '1';
+  if (progOn) piChart = true;
+  curveOn = [3, 4, 8, 16].indexOf(startCurve) >= 0;
+  if (curveOn) curveM = startCurve;
+  fermatOnly = (hp.get('fdiv') || params.get('fdiv')) === '1';
   var startZeta = +(hp.get('zeta') || params.get('zeta') || 0);
   zetaPlane = startZeta >= 30;
   if (zetaPlane) zetaTop = Math.min(390, Math.round(startZeta / 10) * 10);
@@ -1587,6 +2017,7 @@
   T = build(bound > BigInt(TREE_MAX) ? TREE_MAX : Number(bound)); cnt = new Uint32Array(T.n);
   applyRoot();
   ui.rootToggle.checked = rootP === 2;
+  ui.fdivToggle.checked = fermatOnly;
   ui.fillToggle.checked = fillFans;
   ui.ringToggle.checked = ringsByValue;
   ui.lineToggle.checked = wholeLines;
@@ -1603,6 +2034,8 @@
   layout();
   showChart();
   showZeta();
+  showStack();
+  showCurve();
 
   var startOk = startP >= 2 && startP % 1 === 0 && startP <= TREE_MAX;
   if (startOk && isPrime(startP)) focusPrime(startP);

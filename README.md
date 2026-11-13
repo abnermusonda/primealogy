@@ -70,6 +70,10 @@ past 5,000,000 uses most of the CPU, and only starts when a visitor presses Go.
 | `gap` | `#max=50000&zeros=200&gap=1` | Plots π(x) − Li(x) instead, with the bound √x · ln x / 8π that holds from x = 2657 if the Riemann Hypothesis is true. Implies `pi=1`. The "Show the gap" checkbox turns it on and off |
 | `psi` | `#max=8192&psi=1&zeros=50` | Swaps π(x) for Chebyshev's ψ(x) = Σ ln p over prime powers ≤ x, whose trend is x itself and whose explicit formula is one √x · cos(γ ln x) wave per zero. Works with `zeros` and `gap` (the RH bound becomes √x · ln²x / 8π). Implies `pi=1`. The "Weigh each prime by ln p" checkbox turns it on and off |
 | `zeta` | `#zeta=120` | Shows the zeta plane: a map of ζ(s) across the critical strip up to that height (30 to 390), color for phase and brightness for size, with the zeros ringed on Re s = ½. The "Show the zeta plane" checkbox and its height slider set it. The "Check the zeros" button counts the zeros below that height by the argument principle and compares with the sign changes on the line |
+| `curve` | `#max=8192&curve=4` | Shows the Fermat curve xᵐ + yᵐ = 1 over 𝔽ₚ for m = 3, 4, 8 or 16 and the primes p ≡ 1 mod m up to the growth front (at most 20,000): the zeros of each curve's zeta function on their circle of radius √p, and the point counts inside the bound 2g√p. The "Show Fermat curves over finite fields" checkbox and its menu set it |
+| `stack` | `#max=8192&stack=16` | Shows the L-function stack: ζ(s) and every Dirichlet character whose conductor divides that power of two (4 to 128), one sheet each, with their zeros. `sh=40` sets the height (10 to 80). The "Check every zero" button counts the zeros of each L-function by the argument principle and compares with the sign changes on the line |
+| `prog` | `#max=100000&stack=128&prog=1&zeros=1&gap=1` | With `stack`, charts ψ(x; q, 1), the primes one more than a multiple of q, against x/φ(q), lights those primes in the tree, and draws the waves from every zero in the stack below its height. For q = 2ⁿ⁺² these are the only primes that can divide Fₙ. Implies `pi=1` |
+| `fdiv` | `#max=5000000&fdiv=1` | Highlights the primes that divide a Fermat number and lists which one each divides. The "Only primes that divide a Fermat number" checkbox turns it on and off |
 | `fill` | `#max=2000000&fill=0` | `fill=0` removes the shading between each prime's children, which is on by default so the feathers read as solid shapes. The "Fill in the feathers" checkbox turns it on and off |
 
 ## Controls
@@ -88,6 +92,15 @@ generation is its own layer. A double-click or the reset button restores the sta
   argument principle, following arg ζ(s) from 2 to 2 + iT to ½ + iT with steps refined until it turns by less than one
   radian, and compares with the sign changes of Z(t) on the line. That is the method behind the numerical verification of
   the Riemann Hypothesis, run here on a small scale.
+- The Fermat curve's zeros are the Jacobi sums −J(χᵃ, χᵇ) for a character χ of order m, computed from a table of
+  discrete logarithms. Each prime's point count, p + 1 minus the sum of its zeros, is checked against a direct count
+  of the solutions that uses no characters.
+- L(s, χ) is summed directly for the first qM terms and finished residue by residue with Euler–Maclaurin. On the
+  critical line the root number, from the Gauss sum, turns it into a real function Z(t, χ) whose sign changes are the
+  zeros. The scan starts on the real axis, because one character mod 128 has a zero at height 0.018; the
+  argument-principle check is what caught that zero when an earlier scan began just above it. As a precaution the scan
+  also looks inside any dip that turns back without crossing, for a pair of zeros within one step. The 4,633 zeros of
+  the 63 L-functions mod 128 below height 80 take a second or two.
 - The chart's zeta zeros come from the Riemann–Siegel formula, found as sign changes of Z(t). The first ten are
   hard-coded to 9 places, and the rest are good to about 0.001, which is far finer than the chart can show. The
   explicit formula is π(x) = R(x) − Σ R(x^ρ) − 1/ln x + arctan(π/ln x)/π, with each Li(x^ρ) from its

@@ -46,6 +46,14 @@
         <div id="zetaKey" class="chart-key zeta-key"></div>
         <canvas id="zplane" role="img" aria-label="A map of the Riemann zeta function across the critical strip. The real part of s runs from −0.5 at the bottom to 1.5 at the top, the imaginary part runs left to right. Color shows the phase and brightness the size, so the zeros appear as dark spots, all on the middle line where the real part is one half."></canvas>
       </figure>
+      <figure id="stackWrap" class="chart extra" hidden>
+        <div id="stackKey" class="chart-key zeta-key"></div>
+        <canvas id="lstack" role="img" aria-label="A stack of sheets, one for each Dirichlet L-function with a conductor that is a power of two, with the Riemann zeta function at the front. The imaginary part of s runs left to right. Dots mark each function's zeros, all on the middle line of its sheet where the real part is one half."></canvas>
+      </figure>
+      <figure id="curveWrap" class="chart extra" hidden>
+        <div id="curveKey" class="chart-key zeta-key"></div>
+        <canvas id="fcurve" role="img" aria-label="Zeros of the zeta functions of a Fermat curve over finite fields. On the left, each prime's zeros lie exactly on a circle whose radius is the square root of the prime. On the right, the number of points on the curve minus p plus one stays inside the bound that those circles force."></canvas>
+      </figure>
     </div>
 
     <aside class="side">
@@ -80,6 +88,11 @@
       <label class="card check">
         <input id="rootToggle" type="checkbox">
         <span>Only primes hanging directly from 2</span>
+      </label>
+
+      <label class="card check">
+        <input id="fdivToggle" type="checkbox">
+        <span>Only primes that divide a Fermat number</span>
       </label>
 
       <label class="card check">
@@ -149,6 +162,45 @@
         </div>
       </div>
 
+      <div class="card waves">
+        <label class="check">
+          <input id="stackToggle" type="checkbox">
+          <span>Show the L-function stack</span>
+        </label>
+        <div id="stackRow" class="zero-row" hidden>
+          <label class="label" for="stackQ">Characters mod</label>
+          <select id="stackQ">
+            <option value="4">4</option><option value="8">8</option><option value="16" selected>16</option>
+            <option value="32">32</option><option value="64">64</option><option value="128">128</option>
+          </select>
+          <label class="label" for="sh">Height, Im s up to</label>
+          <div class="row">
+            <input id="sh" type="range" min="10" max="80" step="5" value="40">
+            <output id="shOut" for="sh">40</output>
+          </div>
+          <label class="check">
+            <input id="progToggle" type="checkbox">
+            <span id="progLabel">Chart only the primes ≡ 1 mod 16</span>
+          </label>
+          <button id="stackCheck" class="ghost" type="button">Check every zero below this height</button>
+          <div id="stackOut" class="dim small run"></div>
+        </div>
+      </div>
+
+      <div class="card waves">
+        <label class="check">
+          <input id="curveToggle" type="checkbox">
+          <span>Show Fermat curves over finite fields</span>
+        </label>
+        <div id="curveRow" class="zero-row" hidden>
+          <label class="label" for="curveM">Curve</label>
+          <select id="curveM">
+            <option value="3">x³ + y³ = 1</option><option value="4" selected>x⁴ + y⁴ = 1</option>
+            <option value="8">x⁸ + y⁸ = 1</option><option value="16">x¹⁶ + y¹⁶ = 1</option>
+          </select>
+        </div>
+      </div>
+
       <div class="card">
         <div class="label">Generations from 2</div>
         <div id="legend" class="legend"></div>
@@ -176,6 +228,9 @@
       <li><strong>Planes.</strong> Any three primes in a row on that line span a triangle, a piece of a plane. “Fill the planes” shades each one. A triangle whose primes share a generation lies flat in its layer, a 2D plane, and gets the lightest shade. One that reaches across two layers tilts through 3D and is deeper, and one that spans three layers is deepest. Where planes overlap, their shades add up. “Close it all into one solid” wraps every prime in the single tightest solid that holds them all, their convex hull, and draws it opaque and lit from the upper left so it reads as an object as you turn it. Each face takes the color of the layer it sits at.</li>
       <li><strong>ψ(x).</strong> “Weigh each prime by ln p” swaps π(x) for Chebyshev’s ψ(x), which adds ln p for every prime power pᵏ ≤ x. Its trend is simply x, and its exact formula is cleaner: ψ(x) = x − Σ xᵖ/ρ − ln 2π − ½ ln(1 − x⁻²), one pure √x · cos(γ ln x) wave per zero. Under the Riemann Hypothesis |ψ(x) − x| stays below √x · ln²x / 8π. The chart key also feeds the primes back into Euler’s product, ∏ 1/(1 − p⁻²), which closes in on ζ(2) = π²/6.</li>
       <li><strong>The zeta plane.</strong> “Show the zeta plane” maps ζ(s) across the critical strip, with Re s from −0.5 to 1.5 up the side and Im s along the bottom. Color is the phase of ζ(s), brightness its size, so the zeros are the dark spots; they all sit on the dashed line Re s = ½. “Check the zeros” counts them two ways: by the argument principle, which finds every zero in the strip below that height, and as sign changes on the line. When the counts agree, every zero below that height is on the line, which is how the Riemann Hypothesis has been verified numerically up to heights past 10¹².</li>
+      <li><strong>Curves over finite fields.</strong> “Show Fermat curves over finite fields” moves the question up a dimension, to the one setting where the Riemann Hypothesis is proven. The curve xᵐ + yᵐ = 1, counted over the numbers mod p, has its own zeta function, and Weil showed in 1949 that every one of its zeros has absolute value exactly √p. The figure plots those zeros, which land on circles of radius √p, and beside them the number of points on the curve, which that fact pins to within 2g√p of p + 1. The page checks every point count directly.</li>
+      <li><strong>The L-function stack.</strong> ζ(s) is the first of a family. Each Dirichlet character mod 2ᵏ has its own L-function, and “Show the L-function stack” draws them as sheets with their zeros. Together they count the primes one more than a multiple of 2ᵏ, and every prime factor of the Fermat number Fₙ is one more than a multiple of 2ⁿ⁺². “Chart only the primes ≡ 1 mod q” puts those primes on the chart and in the tree, with waves from every zero in the stack. The check button counts the zeros of every L-function two ways, as for ζ.</li>
+      <li><strong>Primes that divide a Fermat number.</strong> A prime p divides Fₙ exactly when 2 has order 2ⁿ⁺¹ mod p. “Only primes that divide a Fermat number” lights the few that do: eleven below 5,000,000, five of them the Fermat primes. The L-functions see how many candidates there are, but every character takes the value 1 on all of them, so nothing in the stack tells 641, which divides F₅, from the thousands of candidates that divide nothing.</li>
       <li><strong>Spokes from 2.</strong> Only Fermat primes (3, 5, 17, 257, 65537) hang straight from 2, because their p − 1 is a power of 2.</li>
     </ul>
   </section>

@@ -105,6 +105,12 @@ progress[hidden], .ghost[hidden] { display: none; }
 .stage-col.is-full.zeta-on { --side: min(calc(100vw - 32px), calc((100vh - 128px) / 1.4)); }
 .stage-col.is-full.charted.zeta-on { --side: min(calc(100vw - 32px), calc((100vh - 160px) / 1.8)); }
 #zplane { aspect-ratio: 3 / 1; }
+#lstack, #fcurve { aspect-ratio: 2 / 1; }
+.is-full .extra { display: none; }   /* full screen keeps to the tree, the chart and the zeta plane */
+.zero-row select { margin-bottom: 10px; }
+.zero-row .check { margin-top: 12px; }
+#stackCheck { margin-top: 10px; }
+#stackOut { margin-top: 6px; }
 .zeta-key { display: block; }
 #checkBtn { margin-top: 10px; }
 #checkOut { margin-top: 6px; }
