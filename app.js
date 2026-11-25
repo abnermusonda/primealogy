@@ -31,14 +31,14 @@
   };
 
   var $ = function (id) { return document.getElementById(id); };
-  var stage = $('stage'), cv = $('tree'), ctx = cv.getContext('2d');
+  var stage = $('stage'), cv = $('tree'), ctx = cv.getContext('2d'), glcv = $('treeGL');
   var ui = {
     play: $('play'), playIcon: $('playIcon'), grow: $('grow'), upto: $('upto'), count: $('count'),
     chainLabel: $('chainLabel'), chain: $('chain'), detail: $('detail'), find: $('find'), q: $('q'), qerr: $('qerr'),
     rootToggle: $('rootToggle'), boundForm: $('boundForm'), bound: $('bound'), bounderr: $('bounderr'),
     runBar: $('runBar'), runStatus: $('runStatus'), stop: $('stop'), stats: $('stats'), legend: $('legend'), theme: $('theme'),
     fillToggle: $('fillToggle'), ringToggle: $('ringToggle'), zin: $('zin'), zout: $('zout'), zreset: $('zreset'), zfull: $('zfull'),
-    lineToggle: $('lineToggle'), planeToggle: $('planeToggle'), planeRow: $('planeRow'), solidToggle: $('solidToggle'), solidRow: $('solidRow'), piToggle: $('piToggle'), waveToggle: $('waveToggle'), gapToggle: $('gapToggle'), zeroRow: $('zeroRow'), zeros: $('zeros'), zeroOut: $('zeroOut'),
+    lineToggle: $('lineToggle'), planeToggle: $('planeToggle'), planeRow: $('planeRow'), solidToggle: $('solidToggle'), solidRow: $('solidRow'), crossToggle: $('crossToggle'), pathToggle: $('pathToggle'), pathRow: $('pathRow'), crossRow: $('crossRow'), crossNote: $('crossNote'),piToggle: $('piToggle'), waveToggle: $('waveToggle'), gapToggle: $('gapToggle'), zeroRow: $('zeroRow'), zeros: $('zeros'), zeroOut: $('zeroOut'),
     chartWrap: $('chartWrap'), chartKey: $('chartKey'), chart: $('pichart'), psiToggle: $('psiToggle'),
     zetaToggle: $('zetaToggle'), zetaRow: $('zetaRow'), zt: $('zt'), ztOut: $('ztOut'), checkBtn: $('checkBtn'), checkOut: $('checkOut'),
     zetaWrap: $('zetaWrap'), zetaKey: $('zetaKey'), zplane: $('zplane'),
@@ -149,6 +149,9 @@
   var oneSolid = false;                          /* draw the primes as one solid, their convex hull, in place of everything else */
   var fillPlanes = false;                        /* shade the triangle of every three primes in a row on that line */
   var PLANE_FILL = [0, 0.07, 0.16, 0.3];         /* by how many layers the triangle spans: flat 2D, tilted 3D, three layers */
+  var pathOn = false;                            /* with the line on, light it from 2 up to the selected prime */
+  var crossOnly = false;                         /* in place of the planes, only the points where one plane cuts through another */
+  var CROSS_MAX = 160000;                        /* the crossings grow with the square of the primes, so stop counting past this many */
   var wholeLines = false;                        /* one line through all the primes in ascending order, instead of the edges */
   var fermatOnly = false;                        /* light only the primes that divide a Fermat number */
   var quarticOn = false;                         /* light the primes p = x² + 64y², where 2 is a 4th power */
@@ -160,6 +163,7 @@
   var zetaPlane = false, zetaTop = 120;          /* the map of ζ(s) across the strip, up to height zetaTop */
   var piChart = false, waves = false, gapView = false, zeroCount = 50;   /* the π(x) chart, Riemann's waves, and π(x) − Li(x) */
   var frameReq = 0;
+  var accent = '#e3b341';
   var theme = 'dark', col = RAMPS.dark, ink = '#eef1f6', paper = '#0a1424', muted = '#7d8aa1', line = 'rgba(255,255,255,.09)', line2 = 'rgba(255,255,255,.16)';
   var font = 'Outfit, system-ui, sans-serif';
 
@@ -173,7 +177,7 @@
     theme = t === 'light' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', theme);
     col = RAMPS[theme];
-    ink = cssVar('--ink', ink); paper = cssVar('--bg', paper); muted = cssVar('--muted', muted); line = cssVar('--line', line); line2 = cssVar('--line-2', line2);
+    accent = cssVar('--accent', accent); ink = cssVar('--ink', ink); paper = cssVar('--bg', paper); muted = cssVar('--muted', muted); line = cssVar('--line', line); line2 = cssVar('--line-2', line2);
     font = getComputedStyle(document.body).fontFamily || font;
     ui.theme.textContent = theme === 'dark' ? 'Switch to light' : 'Switch to dark';
     var meta = document.querySelector('meta[name="theme-color"]');
@@ -271,7 +275,7 @@
     if (!w) return;
     if (W) { tx *= w / W; ty *= w / W; }          /* stay on the same spot when the stage changes size */
     W = w; dpr = Math.min(window.devicePixelRatio || 1, 3);
-    cv.width = cv.height = Math.round(W * dpr);
+    cv.width = cv.height = glcv.width = glcv.height = Math.round(W * dpr);
     cx = cy = W / 2;
     var rim = W / 2 - 14;
     unit = rim / T.exp;
@@ -413,7 +417,7 @@
       }
     }
 
-    if (wholeLines && fillPlanes) {
+    if (wholeLines && fillPlanes && !glPlanes(g, m)) {
       /* the triangle around each prime of this layer and its neighbours on the line, by layers spanned */
       ctx.fillStyle = c;
       for (var d = 1; d <= 3; d++) {
@@ -461,11 +465,13 @@
     ctx.clearRect(0, 0, W, W);
     if (!wholeLines) drawRings(m);              /* the line reads better without the rings behind it */
 
-    var solid = wholeLines && fillPlanes && oneSolid;
+    var solid = wholeLines && fillPlanes && oneSolid, dots = wholeLines && fillPlanes && crossOnly && !solid, bare = solid || dots;
+    glFrame(wholeLines && fillPlanes && !solid);
     cnt.fill(0);
     for (i = 1; i < m; i++) cnt[T.par[i]]++;
     /* painter's order: the layer farthest from the viewer first */
     if (solid) drawSolid(m);
+    else if (dots) drawCrossings(m);
     else for (k = 1; k <= T.maxGen; k++) {
       g = cosT >= 0 ? k : T.maxGen + 1 - k;
       if (!genHidden(g)) drawLayer(g, m);
@@ -482,12 +488,16 @@
     var picked = sel >= 0 && sel < m;
     var f = picked ? sel : m >= T.n ? T.deep : shown;
     var listing = marked !== null && !pair && !picked;   /* the filter speaks for the panel; skip the auto line */
-    if (solid) { /* the solid would hide the line, so it isn't drawn on top of it */ }
+    /* the row for the path only means something while a prime is selected on the line */
+    var pathRowHidden = !(wholeLines && sel >= 0);
+    if (ui.pathRow.hidden !== pathRowHidden) ui.pathRow.hidden = pathRowHidden;
+    if (pathOn && wholeLines && picked && !solid) drawPath(sel, ts);
+    if (bare) { /* the solid would hide the line, and the crossings stand alone */ }
     else if (pair) { trace(near.lo); trace(near.hi); }
     else if (f > 0 && !listing && (picked || !genSel)) trace(f);   /* the automatic line would cross hidden generations */
 
     /* labelled discs for 2, 3, 5, 17 */
-    for (i = 0; i < Math.min(m, 8); i++) if (!solid && isBig(i) && !(i && genHidden(T.gen[i]))) {
+    for (i = 0; i < Math.min(m, 8); i++) if (!bare && isBig(i) && !(i && genHidden(T.gen[i]))) {
       ctx.beginPath(); ctx.arc(SX[i], SY[i], dotSize(i), 0, TAU);
       ctx.fillStyle = i ? col[0] : ink;
       ctx.globalAlpha = marked && i && !marked[i] ? DIM : 1; ctx.fill();
@@ -508,6 +518,271 @@
     drawZeta();
     drawStack();
     drawCurve();
+  }
+
+  /* ---------- where the planes cut through each other ---------- */
+
+  /* Each plane is the triangle of three primes in a row on the line. Two triangles that don't share a
+     prime meet, if at all, along a segment whose ends are where an edge of one passes through the
+     other, so those points are found edge by triangle. Only true cuts count: triangles lying flat in
+     the same layer overlap rather than cross, and touching at a corner or along an edge doesn't count.
+     The work runs prime by prime, so the points come out in the order the tree grows, and stops once
+     there are CROSS_MAX of them, since their number grows with the square of the primes. Points are
+     kept in tree units (log₂ p across, generation up), so they don't depend on the canvas size. */
+  var crossCache = null;
+  function crossData() {
+    if (crossCache && crossCache.T === T) return crossCache;
+    glFree(crossCache);
+    var n = T.n, X = new Float64Array(n), Y = new Float64Array(n), Z = new Float64Array(n), i, k;
+    for (i = 1; i < n; i++) { X[i] = T.lg[i] * Math.cos(T.ang[i]); Y[i] = T.lg[i] * Math.sin(T.ang[i]); Z[i] = T.gen[i]; }
+    var R = T.exp, G = Math.max(8, Math.min(256, Math.round(Math.sqrt(Math.min(n, 4000))))), cs = 2 * R / G;
+    var triGrid = [], edgeGrid = [], triStamp = new Int32Array(n), edgeStamp = new Int32Array(2 * n), q = 0;
+    for (k = 0; k < G * G; k++) { triGrid.push([]); edgeGrid.push([]); }
+    var cell = function (v) { return Math.max(0, Math.min(G - 1, Math.floor((v + R) / cs))); };
+    var cx = [], cy = [], cg = [], cm = [], ca = [], cb = [], cl = [], last = n - 1, eps = 1e-9;
+    /* cells under the bounding box of points a, b and, if c ≥ 0, c */
+    var box = function (a, b, c, fn) {
+      var x0 = Math.min(X[a], X[b]), x1 = Math.max(X[a], X[b]), y0 = Math.min(Y[a], Y[b]), y1 = Math.max(Y[a], Y[b]);
+      if (c >= 0) { x0 = Math.min(x0, X[c]); x1 = Math.max(x1, X[c]); y0 = Math.min(y0, Y[c]); y1 = Math.max(y1, Y[c]); }
+      for (var u = cell(x0), u1 = cell(x1); u <= u1; u++) for (var v = cell(y0), v1 = cell(y1); v <= v1; v++) fn(u * G + v);
+    };
+    /* does edge p–q pass through the triangle centred on prime t (primes t − 1, t, t + 1)? owner is the triangle the edge belongs to */
+    var hit = function (p, r, t, owner) {
+      if ((p >= t - 1 && p <= t + 1) || (r >= t - 1 && r <= t + 1)) return;   /* they share a prime */
+      var a = t - 1, c = t + 1;
+      if (Math.max(Z[p], Z[r]) < Math.min(Z[a], Z[t], Z[c]) || Math.min(Z[p], Z[r]) > Math.max(Z[a], Z[t], Z[c])) return;
+      var ux = X[t] - X[a], uy = Y[t] - Y[a], uz = Z[t] - Z[a], vx = X[c] - X[a], vy = Y[c] - Y[a], vz = Z[c] - Z[a];
+      var nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, nl = Math.hypot(nx, ny, nz);
+      if (!nl) return;
+      var d0 = (nx * (X[p] - X[a]) + ny * (Y[p] - Y[a]) + nz * (Z[p] - Z[a])) / nl;
+      var d1 = (nx * (X[r] - X[a]) + ny * (Y[r] - Y[a]) + nz * (Z[r] - Z[a])) / nl;
+      if (!((d0 > eps && d1 < -eps) || (d0 < -eps && d1 > eps))) return;   /* both ends on one side, or lying in the plane */
+      var f = d0 / (d0 - d1), px = X[p] + (X[r] - X[p]) * f, py = Y[p] + (Y[r] - Y[p]) * f, pz = Z[p] + (Z[r] - Z[p]) * f;
+      var wx = px - X[a], wy = py - Y[a], wz = pz - Z[a];
+      var uu = ux * ux + uy * uy + uz * uz, vv = vx * vx + vy * vy + vz * vz, uv = ux * vx + uy * vy + uz * vz;
+      var wu = wx * ux + wy * uy + wz * uz, wv = wx * vx + wy * vy + wz * vz, den = uv * uv - uu * vv;
+      var b1 = (uv * wv - vv * wu) / den, b2 = (uv * wu - uu * wv) / den;
+      if (!(b1 > eps && b2 > eps && b1 + b2 < 1 - eps)) return;           /* outside the triangle, or on its rim */
+      cx.push(px); cy.push(py); cg.push(pz); cm.push(Math.max(r, c)); ca.push(T.gen[t]); cb.push(T.gen[owner]);
+      cl.push(Math.min(T.maxGen, Math.max(1, Math.round(pz))));            /* coloured by the layer it sits nearest */
+    };
+    /* adding prime k brings the step (k − 1, k), the chord (k − 2, k), and the triangle centred on k − 1;
+       edge e is stored as 2j for the step from j and 2j + 1 for the chord from j */
+    for (k = 2; k < n; k++) {
+      var t = k - 1;
+      [[k - 1, k], [k - 2, k]].forEach(function (e) {
+        q++;
+        box(e[0], e[1], -1, function (g) { var list = triGrid[g]; for (var z = 0; z < list.length; z++) if (triStamp[list[z]] !== q) { triStamp[list[z]] = q; hit(e[0], e[1], list[z], t); } });
+      });
+      q++;
+      box(t - 1, t, k, function (g) {
+        var list = edgeGrid[g];
+        for (var z = 0; z < list.length; z++) {
+          var e = list[z];
+          if (edgeStamp[e] === q) continue;
+          edgeStamp[e] = q;
+          var j = e >> 1, r = j + 1 + (e & 1);
+          hit(j, r, t, j + 1);                                             /* both edges from j belong to the triangle centred on j + 1 */
+        }
+      });
+      box(t - 1, t, k, function (g) { triGrid[g].push(t); });
+      box(k - 1, k, -1, function (g) { edgeGrid[g].push(2 * (k - 1)); });
+      box(k - 2, k, -1, function (g) { edgeGrid[g].push(2 * (k - 2) + 1); });
+      if (cx.length >= CROSS_MAX) { last = k; break; }
+    }
+    /* all the points from step k have largest prime k, so cm rises. Lay them out by colour layer,
+       each layer still in that order, so a layer is drawn far to near like the rest and growth only shortens it */
+    var groups = [], data = new Float32Array(cx.length * VERT), start = [], ms = [], o = 0, g;
+    for (g = 1; g <= T.maxGen; g++) groups[g] = [];
+    for (k = 0; k < cx.length; k++) groups[cl[k]].push(k);
+    for (g = 1; g <= T.maxGen; g++) {
+      start[g] = o / VERT; ms[g] = Int32Array.from(groups[g], function (j) { return cm[j]; });
+      groups[g].forEach(function (j) { o = putVert(data, o, cx[j], cy[j], cg[j], g, 0.85, ca[j], cb[j]); });
+    }
+    crossCache = { T: T, data: data, start: start, ms: ms, m: Int32Array.from(cm), a: Uint8Array.from(ca), b: Uint8Array.from(cb),
+                   last: last, capped: last < n - 1, buf: null, countKey: '', count: 0 };
+    return crossCache;
+  }
+
+  /* how many of the first rows of a layer have all their primes grown in: the rows rise in their largest prime */
+  function grown(ms, m) { var lo = 0, hi = ms.length; while (lo < hi) { var mid = (lo + hi) >> 1; if (ms[mid] < m) lo = mid + 1; else hi = mid; } return lo; }
+
+  function drawCrossings(m) {
+    var c = crossData(), g, k, n;
+    if (!glCrossings(c, m)) {
+      /* no WebGL: the same points through the 2D canvas, one layer at a time into its own path */
+      var r = Math.max(0.6, 0.9 * Math.pow(s, 0.3)), d = 2 * r, half = T.maxGen / 2, D = c.data, o;
+      for (g = 1; g <= T.maxGen; g++) {
+        n = grown(c.ms[g], m);
+        if (!n) continue;
+        ctx.beginPath();
+        for (k = 0, o = c.start[g] * VERT; k < n; k++, o += VERT) {
+          if (genHidden(D[o + 5]) || genHidden(D[o + 6])) continue;          /* either plane is hidden with its generation */
+          view(D[o] * unit, D[o + 1] * unit, (D[o + 2] - half) * layerGap);
+          ctx.rect(outX - r, outY - r, d, d);
+        }
+        ctx.fillStyle = genColor(g); ctx.globalAlpha = 0.85 * fog(g); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+    /* the count for the note, only when the growth or the generations on show change */
+    var key = m + '|' + (genSel ? genList().join(',') : '');
+    if (c.countKey !== key) {
+      c.countKey = key; c.count = 0;
+      for (k = 0; k < c.m.length && c.m[k] < m; k++) if (!genHidden(c.a[k]) && !genHidden(c.b[k])) c.count++;
+    }
+    var cut = c.capped && m > c.last;
+    put(ui.crossNote, fmt(c.count) + (c.count === 1 ? ' crossing' : ' crossings') +
+      (cut ? ' among the first ' + fmt(c.last + 1) + ' primes, up to ' + fmt(T.P[c.last]) + '. Past that there are too many to draw' : ''));
+  }
+
+  /* ---------- the planes and the crossings on the GPU ---------- */
+
+  /* Both are drawn by WebGL into a second canvas under the 2D one. Each is uploaded once per tree, as one
+     buffer laid out by layer, and every frame only the camera changes: the shader does what view() does.
+     Growth draws fewer rows of the same buffer. Without WebGL, or if the context is lost, the 2D code draws them. */
+  var VERT = 7;                                  /* per vertex: x, y in log₂ units, generation, colour layer, opacity, the two generations that hide it */
+  function putVert(D, o, x, y, z, layer, alpha, ga, gb) {
+    D[o] = x; D[o + 1] = y; D[o + 2] = z; D[o + 3] = layer; D[o + 4] = alpha; D[o + 5] = ga; D[o + 6] = gb;
+    return o + VERT;
+  }
+
+  var GL_VS = [
+    'attribute vec3 a_pos; attribute vec4 a_info;',
+    'uniform vec2 u_spin, u_tilt, u_c, u_t; uniform float u_persp, u_fit, u_s, u_W, u_unit, u_gap, u_half, u_halfH, u_dim, u_size;',
+    'uniform vec3 u_col[32]; uniform float u_hidden[32];',
+    'varying vec4 v_col;',
+    'void main() {',
+    '  float layer = a_info.x;',
+    '  if (u_hidden[int(a_info.z + 0.5)] > 0.5 || u_hidden[int(a_info.w + 0.5)] > 0.5) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); gl_PointSize = 0.0; v_col = vec4(0.0); return; }',
+    '  float x = a_pos.x * u_unit, y = a_pos.y * u_unit, z = (a_pos.z - u_half) * u_gap;',
+    '  float x1 = x * u_spin.x - y * u_spin.y, y1 = x * u_spin.y + y * u_spin.x;',
+    '  float y2 = y1 * u_tilt.x - z * u_tilt.y, z2 = y1 * u_tilt.y + z * u_tilt.x;',
+    '  float p = u_persp / (u_persp - z2) * u_fit;',
+    '  vec2 scr = (u_c + vec2(x1, y2) * p) * u_s + u_t;',
+    '  gl_Position = vec4(scr.x / u_W * 2.0 - 1.0, 1.0 - scr.y / u_W * 2.0, 0.0, 1.0);',
+    '  gl_PointSize = u_size;',
+    '  float fog = u_halfH > 0.0 ? 0.7 + 0.3 * ((layer - u_half) * u_gap * u_tilt.x) / u_halfH : 1.0;',
+    '  float a = clamp(a_info.y * u_dim * fog, 0.0, 1.0);',
+    '  v_col = vec4(u_col[int(layer + 0.5) - 1] * a, a);',
+    '}'].join('\n');
+  var GL_FS = 'precision mediump float; varying vec4 v_col; void main() { gl_FragColor = v_col; }';
+
+  var gl = null, glp = null, glu = null, glFailed = false, glShown = false, glColKey = null, glCols = new Float32Array(96), glHide = new Float32Array(32);
+  function glSetup() {
+    if (gl || glFailed) return !!gl;
+    try { gl = glcv.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: true, stencil: true, preserveDrawingBuffer: false }); } catch (e) { gl = null; }
+    if (!gl) { glFailed = true; return false; }
+    var sh = function (type, src) { var o = gl.createShader(type); gl.shaderSource(o, src); gl.compileShader(o); return o; };
+    glp = gl.createProgram();
+    gl.attachShader(glp, sh(gl.VERTEX_SHADER, GL_VS)); gl.attachShader(glp, sh(gl.FRAGMENT_SHADER, GL_FS));
+    gl.linkProgram(glp);
+    if (!gl.getProgramParameter(glp, gl.LINK_STATUS)) { gl = null; glFailed = true; return false; }
+    glu = {};
+    ['u_spin', 'u_tilt', 'u_c', 'u_t', 'u_persp', 'u_fit', 'u_s', 'u_W', 'u_unit', 'u_gap', 'u_half', 'u_halfH', 'u_dim', 'u_size', 'u_col', 'u_hidden']
+      .forEach(function (u) { glu[u] = gl.getUniformLocation(glp, u); });
+    glu.pos = gl.getAttribLocation(glp, 'a_pos'); glu.info = gl.getAttribLocation(glp, 'a_info');
+    gl.useProgram(glp);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);   /* premultiplied, like the 2D canvas */
+    gl.enableVertexAttribArray(glu.pos); gl.enableVertexAttribArray(glu.info);
+    /* the 2D canvas fills each group of shapes as one path, so where they overlap a pixel is shaded once.
+       The stencil does the same here: each group gets its own number, and a pixel takes the group's colour
+       only if it doesn't already carry that number */
+    gl.enable(gl.STENCIL_TEST); gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
+    glColKey = null;
+    return true;
+  }
+  /* a lost context drops every buffer; the 2D code takes over until it comes back */
+  glcv.addEventListener('webglcontextlost', function (e) {
+    e.preventDefault(); gl = null; glShown = false;
+    if (crossCache) crossCache.buf = null;
+    planeCache = null; schedule();
+  });
+  glcv.addEventListener('webglcontextrestored', function () { gl = null; glFailed = false; schedule(); });
+
+  /* clear the GPU canvas and set the camera for this frame; want is false when nothing on it is on show */
+  function glFrame(want) {
+    if (!want || !glSetup()) {
+      if (gl && glShown) { gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); glShown = false; }
+      return;
+    }
+    gl.viewport(0, 0, glcv.width, glcv.height);
+    gl.clearColor(0, 0, 0, 0); gl.clearStencil(0); gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT); glShown = true; glGroup = 0;
+    gl.uniform2f(glu.u_spin, cosS, sinS); gl.uniform2f(glu.u_tilt, cosT, sinT);
+    gl.uniform2f(glu.u_c, cx, cy); gl.uniform2f(glu.u_t, tx, ty);
+    gl.uniform1f(glu.u_persp, persp); gl.uniform1f(glu.u_fit, fit); gl.uniform1f(glu.u_s, s); gl.uniform1f(glu.u_W, W);
+    gl.uniform1f(glu.u_unit, unit); gl.uniform1f(glu.u_gap, layerGap); gl.uniform1f(glu.u_half, T.maxGen / 2); gl.uniform1f(glu.u_halfH, layerGap * T.maxGen / 2);
+    if (glColKey !== col) {
+      glColKey = col;
+      for (var k = 0; k < 32; k++) { var c = rgb(col[Math.min(k + 1, col.length) - 1]); glCols[3 * k] = c[0] / 255; glCols[3 * k + 1] = c[1] / 255; glCols[3 * k + 2] = c[2] / 255; }
+      gl.uniform3fv(glu.u_col, glCols);
+    }
+    for (var g = 0; g < 32; g++) glHide[g] = g && genHidden(g) ? 1 : 0;
+    gl.uniform1fv(glu.u_hidden, glHide);
+  }
+  var glGroup = 0;
+  function glDraw(mode, first, count) {
+    if (++glGroup > 255) { gl.clear(gl.STENCIL_BUFFER_BIT); glGroup = 1; }
+    gl.stencilFunc(gl.NOTEQUAL, glGroup, 0xff);
+    gl.drawArrays(mode, first, count);
+  }
+  function glUse(entry, data) {
+    if (!entry.buf) { entry.buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, entry.buf); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW); }
+    else gl.bindBuffer(gl.ARRAY_BUFFER, entry.buf);
+    gl.vertexAttribPointer(glu.pos, 3, gl.FLOAT, false, VERT * 4, 0);
+    gl.vertexAttribPointer(glu.info, 4, gl.FLOAT, false, VERT * 4, 12);
+  }
+  /* a new tree replaces the buffers; the old ones are freed on the GPU straight away */
+  function glFree(entry) { if (gl && entry && entry.buf) { gl.deleteBuffer(entry.buf); entry.buf = null; } }
+
+  /* the triangles around the primes of layer g, the same set the 2D code fills, grouped as it groups them:
+     by layer, then by how many layers the triangle spans */
+  var planeCache = null;
+  function planeData() {
+    if (planeCache && planeCache.T === T) return planeCache;
+    glFree(planeCache);
+    var n = T.n, X = new Float32Array(n), Y = new Float32Array(n), g, d, k, i, o = 0, start = [], ms = [], groups = [];
+    for (i = 1; i < n; i++) { X[i] = T.lg[i] * Math.cos(T.ang[i]); Y[i] = T.lg[i] * Math.sin(T.ang[i]); }
+    var span = function (i) { var g = T.gen[i], ga = T.gen[i - 1], gb = T.gen[i + 1]; return 1 + (ga !== g) + (gb !== g && gb !== ga); };
+    var total = 0;
+    for (g = 1; g <= T.maxGen; g++) {
+      groups[g] = [null, [], [], []];
+      for (k = 0; k < T.byGen[g].length && (i = T.byGen[g][k]) < n - 1; k++) { groups[g][span(i)].push(i); total++; }
+    }
+    var D = new Float32Array(total * 3 * VERT);
+    for (g = 1; g <= T.maxGen; g++) {
+      start[g] = []; ms[g] = [];
+      for (d = 1; d <= 3; d++) {
+        start[g][d] = o / VERT;
+        ms[g][d] = Int32Array.from(groups[g][d], function (i) { return i + 1; });   /* drawn once prime i + 1 has grown in */
+        groups[g][d].forEach(function (i) {
+          o = putVert(D, o, X[i - 1], Y[i - 1], T.gen[i - 1], g, PLANE_FILL[d], g, g);
+          o = putVert(D, o, X[i], Y[i], g, g, PLANE_FILL[d], g, g);
+          o = putVert(D, o, X[i + 1], Y[i + 1], T.gen[i + 1], g, PLANE_FILL[d], g, g);
+        });
+      }
+    }
+    return (planeCache = { T: T, data: D, start: start, ms: ms, buf: null });
+  }
+
+  function glPlanes(g, m) {
+    if (!glShown) return false;
+    var p = planeData();
+    glUse(p, p.data);
+    gl.uniform1f(glu.u_dim, marked ? DIM : 1); gl.uniform1f(glu.u_size, 1);
+    for (var d = 1; d <= 3; d++) { var n = grown(p.ms[g][d], m); if (n) glDraw(gl.TRIANGLES, p.start[g][d], n * 3); }
+    return true;
+  }
+
+  function glCrossings(c, m) {
+    if (!glShown) return false;
+    glUse(c, c.data);
+    gl.uniform1f(glu.u_dim, 1); gl.uniform1f(glu.u_size, 2 * Math.max(0.6, 0.9 * Math.pow(s, 0.3)) * dpr);
+    for (var k = 1; k <= T.maxGen; k++) {
+      var g = cosT >= 0 ? k : T.maxGen + 1 - k, n = grown(c.ms[g], m);   /* far layers first */
+      if (n) glDraw(gl.POINTS, c.start[g], n);
+    }
+    return true;
   }
 
   /* ---------- one solid: the convex hull of the primes ---------- */
@@ -580,10 +855,22 @@
     return faces.filter(function (f) { return f.live; });
   }
 
-  var hullCache = { key: '', faces: [] };
+  var hullCache = { key: '', m: 0, faces: [] };
   function solidHull(m) {
-    var key = m + '|' + W + '|' + (genSel ? genList().join(',') : '');
-    if (hullCache.key === key) return hullCache.faces;
+    var key = W + '|' + (genSel ? genList().join(',') : ''), h = hullCache, i, k;
+    if (h.T === T && h.key === key && h.m === m) return h.faces;
+    /* while the tree grows, keep the hull as long as every new prime lands inside it */
+    if (h.T === T && h.key === key && h.m < m && h.faces.length) {
+      var inside = true, eps = 1e-7 * W;
+      for (i = h.m; i < m && inside; i++) {
+        if (genHidden(T.gen[i])) continue;
+        for (k = 0; k < h.faces.length; k++) {
+          var f = h.faces[k];
+          if (f.nx * WX[i] + f.ny * WY[i] + f.nz * WZ[i] - f.d > eps) { inside = false; break; }
+        }
+      }
+      if (inside) { h.m = m; return h.faces; }
+    }
     var ids = [0], g, k, list;
     for (g = 1; g <= T.maxGen; g++) {
       if (genHidden(g)) continue;
@@ -591,7 +878,7 @@
       for (k = 0; k < T.byGen[g].length && T.byGen[g][k] < m; k++) list.push(T.byGen[g][k]);
       ids = ids.concat(layerHull(list));
     }
-    return (hullCache = { key: key, faces: hull3d(ids) }).faces;
+    return (hullCache = { T: T, key: key, m: m, faces: hull3d(ids) }).faces;
   }
 
   function rgb(hex) { var n = parseInt(hex.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
@@ -619,6 +906,46 @@
       ctx.fillStyle = fill; ctx.fill();
       ctx.strokeStyle = fill; ctx.lineWidth = 0.8; ctx.stroke();       /* closes the hairline seams between faces */
     }
+  }
+
+  /* the line in order, 2 → 3 → 5 → … → prime f: a soft ink edge under it so it reads over the planes,
+     then each step in the colour of the generation it lands in, as the line itself is coloured */
+  function drawPath(f, ts) {
+    var k, g;
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (k = 1; k <= f; k++) if (!genHidden(T.gen[k])) addStep(k);
+    ctx.strokeStyle = ink; ctx.globalAlpha = 0.35; ctx.lineWidth = 4.5; ctx.stroke();
+    ctx.globalAlpha = 1; ctx.lineWidth = 2.2;
+    for (g = 1; g <= T.maxGen; g++) {
+      if (genHidden(g)) continue;
+      ctx.beginPath();
+      for (k = 1; k <= f; k++) if (T.gen[k] === g) addStep(k);
+      ctx.strokeStyle = genColor(g); ctx.stroke();
+    }
+    if (!reduceMotion) flowPath(f, ts);
+    ctx.lineCap = 'butt';
+  }
+
+  /* light flowing along that line from 2 to prime f: one continuous polyline, so the dashes carry on from
+     step to step, with the dash pattern moved forward a little every frame. Each pulse is a faint wide glow
+     with a bright core at its leading end. While it's on show, every frame asks for the next one */
+  var FLOW_SPEED = 90, FLOW_GAP = 64;           /* screen pixels per second; length of one dash and the space after it */
+  function flowPath(f, ts) {
+    var t = (ts || performance.now()) / 1000, shift = -(t * FLOW_SPEED) % FLOW_GAP, k, open = false;
+    ctx.beginPath();
+    for (k = 0; k <= f; k++) {
+      if (k && genHidden(T.gen[k])) { open = false; continue; }      /* a hidden generation breaks the line, as it does the steps */
+      if (open) ctx.lineTo(SX[k], SY[k]); else { ctx.moveTo(SX[k], SY[k]); open = true; }
+    }
+    var light = theme === 'dark' ? '#ffffff' : accent;
+    ctx.strokeStyle = light; ctx.lineCap = 'round';
+    ctx.setLineDash([22, FLOW_GAP - 22]); ctx.lineDashOffset = shift;
+    ctx.globalAlpha = 0.22; ctx.lineWidth = 6; ctx.stroke();
+    ctx.setLineDash([8, FLOW_GAP - 8]); ctx.lineDashOffset = shift - 14;   /* the core rides at the front of the glow */
+    ctx.globalAlpha = 0.95; ctx.lineWidth = 2; ctx.stroke();
+    ctx.setLineDash([]); ctx.lineDashOffset = 0; ctx.globalAlpha = 1;
+    schedule();
   }
 
   /* one line of descent, from prime f back to 2 */
@@ -690,6 +1017,13 @@
     }
     return c;
   }
+  /* with the path lit: how long the line in order is up to prime f, and how often it changes layer */
+  function pathLine(f) {
+    var hops = 0;
+    for (var k = 1; k <= f; k++) if (T.gen[k] !== T.gen[k - 1]) hops++;
+    return '\nIn order from 2: ' + fmt(f) + (f === 1 ? ' step' : ' steps') + ' through all ' + fmt(f + 1) + ' primes up to ' + T.P[f] +
+      ', ' + fmt(hops) + ' of them to another generation';
+  }
   /* extra lines for a selected prime while one of the power-residue highlights is on */
   function orderLines(i) {
     if (!(funnelOn || quarticOn || fermatOnly) || i < 1) return '';
@@ -742,7 +1076,7 @@
       var kids = T.kids[f].length;
       var text = lead + ' · generation ' + T.gen[f] + '\n' + p + ' − 1 = ' + fac +
         (playing ? '' : '\n' + (kids ? kids + (kids === 1 ? ' child' : ' children') : 'No children') + ' up to ' + fmt(T.N));
-      setDetail(text + (playing ? '' : orderLines(f)));
+      setDetail(text + (playing ? '' : orderLines(f)) + (picked && pathOn && wholeLines ? pathLine(f) : ''));
     } else {
       var t0 = 'The root · every prime traces back to 2' + (playing ? '' : '\n' + T.kids[0].length + ' children: ' + T.kids[0].map(function (c) { return T.P[c]; }).join(', '));
       setDetail(t0);
@@ -1746,10 +2080,17 @@
     syncLegend(); writeHash(); schedule();
   });
   ui.ringToggle.addEventListener('change', function () { ringsByValue = ui.ringToggle.checked; writeHash(); schedule(); });
-  function syncPlaneRows() { ui.planeRow.hidden = !wholeLines; ui.solidRow.hidden = !(wholeLines && fillPlanes); }
+  function syncPlaneRows() {
+    var sub = wholeLines && fillPlanes;
+    ui.planeRow.hidden = !wholeLines; ui.solidRow.hidden = ui.crossRow.hidden = !sub;
+    ui.crossNote.hidden = !(sub && crossOnly && !oneSolid);
+    ui.crossToggle.checked = crossOnly; ui.solidToggle.checked = oneSolid;
+  }
+  ui.pathToggle.addEventListener('change', function () { pathOn = ui.pathToggle.checked; writeHash(); schedule(); });
   ui.lineToggle.addEventListener('change', function () { wholeLines = ui.lineToggle.checked; syncPlaneRows(); writeHash(); schedule(); });
   ui.planeToggle.addEventListener('change', function () { fillPlanes = ui.planeToggle.checked; syncPlaneRows(); writeHash(); schedule(); });
-  ui.solidToggle.addEventListener('change', function () { oneSolid = ui.solidToggle.checked; writeHash(); schedule(); });
+  ui.solidToggle.addEventListener('change', function () { oneSolid = ui.solidToggle.checked; if (oneSolid) crossOnly = false; syncPlaneRows(); writeHash(); schedule(); });
+  ui.crossToggle.addEventListener('change', function () { crossOnly = ui.crossToggle.checked; if (crossOnly) oneSolid = false; syncPlaneRows(); writeHash(); schedule(); });
   ui.fillToggle.addEventListener('change', function () { fillFans = ui.fillToggle.checked; writeHash(); schedule(); });
   /* the waves are drawn on the chart, so turning them on brings the chart with them */
   ui.piToggle.addEventListener('change', function () {
@@ -2054,6 +2395,8 @@
       (genSel ? '&gen=' + genList().join(',') : params.get('gen') ? '&gen=all' : '') +
       (!fillFans ? '&fill=0' : params.get('fill') === '0' ? '&fill=1' : '') +   /* likewise for fill=0 in the query */
       (oneSolid ? '&solid=1' : params.get('solid') ? '&solid=0' : '') +
+      (crossOnly ? '&cross=1' : params.get('cross') ? '&cross=0' : '') +
+      (pathOn ? '&path=1' : params.get('path') ? '&path=0' : '') +
       (fillPlanes ? '&planes=1' : params.get('planes') ? '&planes=0' : '') +
       (wholeLines ? '&lines=1' : params.get('lines') ? '&lines=0' : '') +
       (piChart ? '&pi=1' : params.get('pi') ? '&pi=0' : '') +
@@ -2090,6 +2433,8 @@
   wholeLines = (hp.get('lines') || params.get('lines')) === '1';
   fillPlanes = (hp.get('planes') || params.get('planes')) === '1';
   oneSolid = (hp.get('solid') || params.get('solid')) === '1';
+  crossOnly = !oneSolid && (hp.get('cross') || params.get('cross')) === '1';
+  pathOn = (hp.get('path') || params.get('path')) === '1';
   var startZeros = +(hp.get('zeros') || params.get('zeros') || 0);
   waves = startZeros >= 1 && startZeros % 1 === 0;
   if (waves) zeroCount = Math.min(startZeros, ZERO_MAX);
@@ -2125,7 +2470,7 @@
   ui.fillToggle.checked = fillFans;
   ui.ringToggle.checked = ringsByValue;
   ui.lineToggle.checked = wholeLines;
-  ui.planeToggle.checked = fillPlanes; ui.solidToggle.checked = oneSolid; syncPlaneRows();
+  ui.planeToggle.checked = fillPlanes; ui.solidToggle.checked = oneSolid; ui.pathToggle.checked = pathOn; syncPlaneRows();
   ui.bound.value = fmtBig(bound);
   showStats();
   /* a link never starts the CPU-heavy count on its own */

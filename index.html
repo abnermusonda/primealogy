@@ -22,6 +22,7 @@
   <section class="app" aria-label="Interactive prime family tree">
     <div class="stage-col">
       <div id="stage" class="stage">
+        <canvas id="treeGL" aria-hidden="true"></canvas>
         <canvas id="tree" role="img" aria-label="Three-dimensional radial tree of the primes, with one layer for each generation. The prime 2 sits at the center of the lowest layer and every other prime is joined to the largest prime factor of the number one less than itself. Distance from the center grows with the size of the prime on a log scale, and color shows how many steps separate it from 2.">Primes drawn as a tree rooted at 2. The longest line of descent below 8,192 is 2, 5, 11, 89, 179, 359, 719, 1439, 2879.</canvas>
         <div class="zoom" role="group" aria-label="Zoom">
           <button id="zin" type="button" aria-label="Zoom in">+</button>
@@ -128,10 +129,19 @@
           <input id="lineToggle" type="checkbox">
           <span>Join all the primes in order, 2 → 3 → 5 → 7 …</span>
         </label>
+        <label id="pathRow" class="check sub" hidden>
+          <input id="pathToggle" type="checkbox">
+          <span>Highlight the line from 2 to the selected prime</span>
+        </label>
         <label id="planeRow" class="check sub" hidden>
           <input id="planeToggle" type="checkbox">
           <span>Fill the planes between steps, deeper across more layers</span>
         </label>
+        <label id="crossRow" class="check sub" hidden>
+          <input id="crossToggle" type="checkbox">
+          <span>Only show the points where the planes intersect</span>
+        </label>
+        <p id="crossNote" class="sub-note" hidden></p>
         <label id="solidRow" class="check sub" hidden>
           <input id="solidToggle" type="checkbox">
           <span>Close it all into one solid</span>
