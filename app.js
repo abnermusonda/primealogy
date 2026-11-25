@@ -42,7 +42,7 @@
     chartWrap: $('chartWrap'), chartKey: $('chartKey'), chart: $('pichart'), psiToggle: $('psiToggle'),
     zetaToggle: $('zetaToggle'), zetaRow: $('zetaRow'), zt: $('zt'), ztOut: $('ztOut'), checkBtn: $('checkBtn'), checkOut: $('checkOut'),
     zetaWrap: $('zetaWrap'), zetaKey: $('zetaKey'), zplane: $('zplane'),
-    fdivToggle: $('fdivToggle'), stackToggle: $('stackToggle'), stackRow: $('stackRow'), stackQ: $('stackQ'), sh: $('sh'), shOut: $('shOut'),
+    fdivToggle: $('fdivToggle'), quarticToggle: $('quarticToggle'), funnelToggle: $('funnelToggle'), funnelRow: $('funnelRow'), funnelN: $('funnelN'), funnelSteps: $('funnelSteps'), stackToggle: $('stackToggle'), stackRow: $('stackRow'), stackQ: $('stackQ'), sh: $('sh'), shOut: $('shOut'),
     progToggle: $('progToggle'), progLabel: $('progLabel'), stackCheck: $('stackCheck'), stackOut: $('stackOut'), stackWrap: $('stackWrap'), stackKey: $('stackKey'), lstack: $('lstack'),
     curveToggle: $('curveToggle'), curveRow: $('curveRow'), curveM: $('curveM'), curveWrap: $('curveWrap'), curveKey: $('curveKey'), fcurve: $('fcurve')
   };
@@ -110,6 +110,9 @@
       var pp = P[i], x2 = 2 % pp, left = pp - 1;
       for (j = 0; left % 2 === 0; j++, left /= 2) { if (x2 === pp - 1) { fdiv[i] = j + 1; fdivList.push(i); break; } x2 = x2 * x2 % pp; }
     }
+    /* for p ≡ 1 mod 8, is 2 a 4th power mod p? By Gauss that is the same as p = x² + 64y² */
+    var quartic = [], mod8 = 0;
+    for (i = 1; i < n; i++) if (P[i] % 8 === 1) { mod8++; if (powmod(2, (P[i] - 1) / 4, P[i]) === 1) quartic.push(i); }
     /* running sums over the primes in order: Σ ln p for ψ(x), and Σ −ln(1 − p⁻²) for the Euler product */
     var lnSum = new Float64Array(n + 1), euler = new Float64Array(n + 1);
     for (i = 0; i < n; i++) { lnSum[i + 1] = lnSum[i] + Math.log(P[i]); euler[i + 1] = euler[i] - Math.log(1 - 1 / (P[i] * P[i])); }
@@ -122,7 +125,7 @@
       return out;
     };
     return { exp: exp, N: N, P: P, n: n, idx: idx, par: par, gen: gen, kids: kids, byGen: byGen, fans: fans, lg: lg, ang: ang,
-             deep: deep, maxGen: gen[deep], leaves: leaves, factor: factor, lnSum: lnSum, euler: euler, fdiv: fdiv, fdivList: fdivList };
+             deep: deep, maxGen: gen[deep], leaves: leaves, factor: factor, lnSum: lnSum, euler: euler, fdiv: fdiv, fdivList: fdivList, quartic: quartic, mod8: mod8 };
   }
 
   /* ---------- state ---------- */
@@ -148,6 +151,8 @@
   var PLANE_FILL = [0, 0.07, 0.16, 0.3];         /* by how many layers the triangle spans: flat 2D, tilted 3D, three layers */
   var wholeLines = false;                        /* one line through all the primes in ascending order, instead of the edges */
   var fermatOnly = false;                        /* light only the primes that divide a Fermat number */
+  var quarticOn = false;                         /* light the primes p = x² + 64y², where 2 is a 4th power */
+  var funnelOn = false, funnelN = 5, funnelStep = 1;   /* narrow the candidates for a factor of F_funnelN, in three steps */
   var stackOn = false, stackK = 4, stackTop = 40, progOn = false;   /* the L-functions mod 2^stackK, and the chart of primes ≡ 1 mod it */
   var curveOn = false, curveM = 4;               /* Fermat curves x^m + y^m = 1 over finite fields */
   var hl = null;                                 /* what the highlight shows: { list, label, note, item } */
@@ -656,6 +661,73 @@
   }
 
   function put(el, text) { if (el._t !== text) { el._t = text; el.textContent = text; } }
+  /* the order of 2 mod p as 2^s · d with d odd, from the factors of p − 1 */
+  function orderOf2(p) {
+    var m = p - 1, s = 0, d, g;
+    while (m % 2 === 0) m /= 2;
+    g = powmod(2, m, p);
+    while (g !== 1) { g = g * g % p; s++; }
+    g = powmod(2, Math.pow(2, s), p); d = m;
+    T.factor(m).forEach(function (f) { while (d % f[0] === 0 && powmod(g, d / f[0], p) === 1) d /= f[0]; });
+    return { s: s, d: d };
+  }
+  /* candidates for a prime factor of F_n, narrowed in three steps: p ≡ 1 mod 2^(n+2); then the order of 2
+     has power-of-2 part 2^(n+1); then its odd part is 1, which leaves the factors themselves */
+  var funnelCache = { n: 0, N: 0 };
+  function funnelData() {
+    var c = funnelCache, md = Math.pow(2, funnelN + 2), i;
+    if (c.n === funnelN && c.N === T.N) return c;
+    c = funnelCache = { n: funnelN, N: T.N, steps: [[], [], []] };
+    for (i = 1; i < T.n; i++) if (T.P[i] % md === 1) {
+      c.steps[0].push(i);
+      var p = T.P[i], m = p - 1, s = 0, g;
+      while (m % 2 === 0) m /= 2;
+      g = powmod(2, m, p);
+      while (g !== 1) { g = g * g % p; s++; }
+      if (s !== funnelN + 1) continue;
+      c.steps[1].push(i);
+      if (T.fdiv[i] === funnelN + 1) c.steps[2].push(i);
+    }
+    return c;
+  }
+  /* extra lines for a selected prime while one of the power-residue highlights is on */
+  function orderLines(i) {
+    if (!(funnelOn || quarticOn || fermatOnly) || i < 1) return '';
+    var p = T.P[i], o = orderOf2(p), out = '', y, x;
+    if (p % 8 === 1) {
+      /* p = a² + 16c² always; 2 is a 4th power exactly when c is even, which is Gauss's x² + 64y² */
+      for (y = 1; 16 * y * y < p; y++) { x = Math.round(Math.sqrt(p - 16 * y * y)); if (x * x + 16 * y * y === p) break; }
+      out += '\n' + (y % 2 ? p + ' = ' + x + '² + 16 · ' + y + '², not of the form x² + 64y²: 2 is a square but not a 4th power mod ' + p
+                           : p + ' = ' + x + '² + 64 · ' + y / 2 + '²: 2 is a 4th power mod ' + p);
+    } else out += '\n' + p + ' is ' + p % 8 + ' more than a multiple of 8, so Gauss’s x² + 64y² test doesn’t apply';
+    out += '\nOrder of 2 mod ' + p + ': ' + fmt(Math.pow(2, o.s) * o.d) + (o.s > 1 ? ' = 2' + sup(o.s) + (o.d > 1 ? ' × ' + fmt(o.d) : '') : o.s === 1 && o.d > 1 ? ' = 2 × ' + fmt(o.d) : '') +
+      (T.fdiv[i] ? ', a power of 2, so ' + p + ' divides F' + sub(T.fdiv[i] - 1) : o.d > 1 ? ', not a power of 2, so it divides no Fermat number' : '');
+    return out;
+  }
+  function syncFunnel() {
+    ui.funnelRow.hidden = !funnelOn;
+    ui.funnelToggle.checked = funnelOn; ui.quarticToggle.checked = quarticOn; ui.fdivToggle.checked = fermatOnly; ui.rootToggle.checked = rootP === 2;
+    ui.funnelN.value = funnelN;
+    if (!funnelOn) return;
+    var fd = funnelData(), md = Math.pow(2, funnelN + 2), half = Math.pow(2, funnelN + 1);
+    var names = ['One more than a multiple of ' + fmt(md), 'Order of 2 has power-of-2 part ' + fmt(half), 'Order of 2 is exactly ' + fmt(half)];
+    ui.funnelSteps.textContent = '';
+    names.forEach(function (name, k) {
+      var b = document.createElement('button'), n = document.createElement('strong');
+      b.type = 'button'; b.dataset.step = k + 1; b.setAttribute('aria-pressed', String(funnelStep === k + 1));
+      n.textContent = fmt(fd.steps[k].length);
+      b.appendChild(document.createTextNode(name + ' ')); b.appendChild(n);
+      ui.funnelSteps.appendChild(b);
+    });
+  }
+  /* the tree shows one highlight at a time, so switching one on switches the others off */
+  function onlyHighlight(kind) {
+    if (kind !== 'root') rootP = 0;
+    if (kind !== 'fdiv') fermatOnly = false;
+    if (kind !== 'quartic') quarticOn = false;
+    if (kind !== 'funnel') funnelOn = false;
+    sel = -1; clearNear();
+  }
   function sub(e) { var d = '₀₁₂₃₄₅₆₇₈₉'; return String(e).split('').map(function (c) { return d[+c]; }).join(''); }
   function sup(e) { var d = '⁰¹²³⁴⁵⁶⁷⁸⁹'; return e === 1 ? '' : String(e).split('').map(function (c) { return d[+c]; }).join(''); }
   function fmt(n) { return n.toLocaleString('en-US'); }
@@ -670,7 +742,7 @@
       var kids = T.kids[f].length;
       var text = lead + ' · generation ' + T.gen[f] + '\n' + p + ' − 1 = ' + fac +
         (playing ? '' : '\n' + (kids ? kids + (kids === 1 ? ' child' : ' children') : 'No children') + ' up to ' + fmt(T.N));
-      setDetail(text);
+      setDetail(text + (playing ? '' : orderLines(f)));
     } else {
       var t0 = 'The root · every prime traces back to 2' + (playing ? '' : '\n' + T.kids[0].length + ' children: ' + T.kids[0].map(function (c) { return T.P[c]; }).join(', '));
       setDetail(t0);
@@ -1644,9 +1716,23 @@
   ui.stop.addEventListener('click', function () { stopRun(); });
   ui.theme.addEventListener('click', function () { applyTheme(theme === 'dark' ? 'light' : 'dark'); store.set('pft-theme', theme); });
   ui.rootToggle.addEventListener('change', function () {
-    rootP = ui.rootToggle.checked ? 2 : 0;
-    if (rootP) { sel = -1; clearNear(); }        /* a selection would hide the list in the panel */
-    applyRoot(); writeHash(); schedule();
+    if (ui.rootToggle.checked) { onlyHighlight('root'); rootP = 2; } else rootP = 0;   /* a selection would hide the list in the panel */
+    applyRoot(); syncFunnel(); writeHash(); schedule();
+  });
+  ui.quarticToggle.addEventListener('change', function () {
+    if (ui.quarticToggle.checked) { onlyHighlight('quartic'); quarticOn = true; } else quarticOn = false;
+    applyRoot(); syncFunnel(); writeHash(); schedule();
+  });
+  ui.funnelToggle.addEventListener('change', function () {
+    if (ui.funnelToggle.checked) { onlyHighlight('funnel'); funnelOn = true; } else funnelOn = false;
+    applyRoot(); syncFunnel(); writeHash(); schedule();
+  });
+  ui.funnelN.addEventListener('change', function () { funnelN = +ui.funnelN.value; sel = -1; clearNear(); applyRoot(); syncFunnel(); writeHash(); schedule(); });
+  ui.funnelSteps.addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    funnelStep = +b.dataset.step; sel = -1; clearNear();
+    applyRoot(); syncFunnel(); writeHash(); schedule();
   });
   ui.legend.addEventListener('click', function (e) {
     var b = e.target.closest('button');
@@ -1679,9 +1765,8 @@
     showChart(); writeHash();
   });
   ui.fdivToggle.addEventListener('change', function () {
-    fermatOnly = ui.fdivToggle.checked;
-    if (fermatOnly) { sel = -1; clearNear(); }
-    applyRoot(); writeHash(); schedule();
+    if (ui.fdivToggle.checked) { onlyHighlight('fdiv'); fermatOnly = true; } else fermatOnly = false;
+    applyRoot(); syncFunnel(); writeHash(); schedule();
   });
   ui.stackToggle.addEventListener('change', function () { stackOn = ui.stackToggle.checked; if (!stackOn) progOn = false; applyRoot(); showStack(); showChart(); writeHash(); });
   ui.stackQ.addEventListener('change', function () { stackK = Math.round(Math.log2(+ui.stackQ.value)); put(ui.stackOut, ''); applyRoot(); showStack(); writeHash(); });
@@ -1756,14 +1841,22 @@
     var i = rootP >= 2 && rootP % 1 === 0 && rootP <= T.N ? T.idx[rootP] : -1, plain = function (k) { return String(T.P[k]); };
     marked = null; hl = null;
     /* one highlight at a time: Fermat divisors, then the progression on the chart, then the root filter */
-    if (fermatOnly) hl = { list: T.fdivList, label: 'Dividing a Fermat number', note: 'p divides Fₙ when 2 has order 2ⁿ⁺¹ mod p',
+    if (funnelOn) {
+      var fd = funnelData(), fn = 'F' + sub(funnelN), md = Math.pow(2, funnelN + 2), half = Math.pow(2, funnelN + 1);
+      hl = [null,
+        { list: fd.steps[0], label: 'Could divide ' + fn + ': one more than a multiple of ' + fmt(md), note: 'Every prime factor of ' + fn + ' has this form', item: plain },
+        { list: fd.steps[1], label: 'Could divide ' + fn + ': the order of 2 has power-of-2 part ' + fmt(half), note: 'About a third of the candidates. Still to pass: 2 must be an ℓ-th power for every odd prime ℓ in p − 1', item: plain },
+        { list: fd.steps[2], label: 'Divides ' + fn, note: 'The order of 2 is exactly ' + fmt(half) + ', so 2 to the power ' + fmt(half / 2) + ' is −1 mod p', item: plain }][funnelStep];
+    }
+    else if (quarticOn) hl = { list: T.quartic, label: '2 is a 4th power: p = x² + 64y²', note: 'Half of the ' + fmt(T.mod8) + ' primes one more than a multiple of 8 (Gauss)', item: plain };
+    else if (fermatOnly) hl = { list: T.fdivList, label: 'Dividing a Fermat number', note: 'p divides Fₙ when 2 has order 2ⁿ⁺¹ mod p',
                            item: function (k) { return T.P[k] + ' | F' + sub(T.fdiv[k] - 1); } };
     else if (progOn && stackOn) hl = { list: progData().list, label: 'One more than a multiple of ' + (1 << stackK),
                                        note: stackK >= 4 ? 'Every prime factor of F' + sub(stackK - 2) + ' is one of these' : '', item: plain };
     else if (i >= 0) hl = { list: T.kids[i], label: 'Hanging directly from ' + rootP, note: rootP === 2 ? 'Fermat primes: p − 1 is a power of 2' : '', item: plain };
     if (!hl) return;
     marked = new Uint8Array(T.n);
-    if (!fermatOnly && !(progOn && stackOn) && i >= 0) marked[i] = 1;
+    if (!funnelOn && !quarticOn && !fermatOnly && !(progOn && stackOn) && i >= 0) marked[i] = 1;
     hl.list.forEach(function (k) { marked[k] = 1; });
   }
 
@@ -1777,6 +1870,7 @@
       cnt = new Uint32Array(T.n);
       applyRoot();
       buildLegend();
+      syncFunnel();
     }
     showStats();
     ui.bound.value = fmtBig(b);
@@ -1969,7 +2063,9 @@
       (zetaPlane ? '&zeta=' + zetaTop : params.get('zeta') ? '&zeta=0' : '') +
       (stackOn ? '&stack=' + (1 << stackK) + (stackTop !== 40 ? '&sh=' + stackTop : '') + (progOn ? '&prog=1' : '') : params.get('stack') ? '&stack=0' : '') +
       (curveOn ? '&curve=' + curveM : params.get('curve') ? '&curve=0' : '') +
-      (fermatOnly ? '&fdiv=1' : params.get('fdiv') ? '&fdiv=0' : '');
+      (fermatOnly ? '&fdiv=1' : params.get('fdiv') ? '&fdiv=0' : '') +
+      (quarticOn ? '&quartic=1' : params.get('quartic') ? '&quartic=0' : '') +
+      (funnelOn ? '&narrow=' + funnelN + (funnelStep > 1 ? '&step=' + funnelStep : '') : params.get('narrow') ? '&narrow=0' : '');
     try { window.history.replaceState(null, '', '#' + h); } catch (e) { /* sandboxed */ }
   }
 
@@ -2009,6 +2105,14 @@
   curveOn = [3, 4, 8, 16].indexOf(startCurve) >= 0;
   if (curveOn) curveM = startCurve;
   fermatOnly = (hp.get('fdiv') || params.get('fdiv')) === '1';
+  quarticOn = (hp.get('quartic') || params.get('quartic')) === '1';
+  var startNarrow = +(hp.get('narrow') || params.get('narrow') || 0), startStep = +(hp.get('step') || params.get('step') || 1);
+  funnelOn = startNarrow >= 2 && startNarrow <= 12 && startNarrow % 1 === 0;
+  if (funnelOn) { funnelN = startNarrow; funnelStep = startStep === 2 || startStep === 3 ? startStep : 1; }
+  /* one highlight at a time: the narrowing first, then 4th powers, then Fermat divisors, then the root */
+  if (funnelOn) quarticOn = fermatOnly = false;
+  if (quarticOn) fermatOnly = false;
+  if (funnelOn || quarticOn || fermatOnly) rootP = 0;
   var startZeta = +(hp.get('zeta') || params.get('zeta') || 0);
   zetaPlane = startZeta >= 30;
   if (zetaPlane) zetaTop = Math.min(390, Math.round(startZeta / 10) * 10);
@@ -2017,7 +2121,7 @@
   T = build(bound > BigInt(TREE_MAX) ? TREE_MAX : Number(bound)); cnt = new Uint32Array(T.n);
   applyRoot();
   ui.rootToggle.checked = rootP === 2;
-  ui.fdivToggle.checked = fermatOnly;
+  syncFunnel();
   ui.fillToggle.checked = fillFans;
   ui.ringToggle.checked = ringsByValue;
   ui.lineToggle.checked = wholeLines;

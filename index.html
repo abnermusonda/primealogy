@@ -96,6 +96,29 @@
       </label>
 
       <label class="card check">
+        <input id="quarticToggle" type="checkbox">
+        <span>Only primes where 2 is a 4th power (p = x² + 64y²)</span>
+      </label>
+
+      <div class="card waves">
+        <label class="check">
+          <input id="funnelToggle" type="checkbox">
+          <span>Narrow down the primes that could divide a Fermat number</span>
+        </label>
+        <div id="funnelRow" class="zero-row" hidden>
+          <label class="label" for="funnelN">Fermat number</label>
+          <select id="funnelN">
+            <option value="2">F₂ = 17</option><option value="3">F₃ = 257</option><option value="4">F₄ = 65537</option>
+            <option value="5" selected>F₅ = 2³² + 1</option><option value="6">F₆ = 2⁶⁴ + 1</option><option value="7">F₇ = 2¹²⁸ + 1</option>
+            <option value="8">F₈ = 2²⁵⁶ + 1</option><option value="9">F₉ = 2⁵¹² + 1</option><option value="10">F₁₀ = 2¹⁰²⁴ + 1</option>
+            <option value="11">F₁₁ = 2²⁰⁴⁸ + 1</option><option value="12">F₁₂ = 2⁴⁰⁹⁶ + 1</option>
+          </select>
+          <div class="label">Keep only the primes where</div>
+          <div id="funnelSteps" class="funnel" role="group" aria-label="Narrowing steps"></div>
+        </div>
+      </div>
+
+      <label class="card check">
         <input id="fillToggle" type="checkbox">
         <span>Fill in the feathers</span>
       </label>
@@ -231,6 +254,8 @@
       <li><strong>Curves over finite fields.</strong> “Show Fermat curves over finite fields” moves the question up a dimension, to the one setting where the Riemann Hypothesis is proven. The curve xᵐ + yᵐ = 1, counted over the numbers mod p, has its own zeta function, and Weil showed in 1949 that every one of its zeros has absolute value exactly √p. The figure plots those zeros, which land on circles of radius √p, and beside them the number of points on the curve, which that fact pins to within 2g√p of p + 1. The page checks every point count directly.</li>
       <li><strong>The L-function stack.</strong> ζ(s) is the first of a family. Each Dirichlet character mod 2ᵏ has its own L-function, and “Show the L-function stack” draws them as sheets with their zeros. Together they count the primes one more than a multiple of 2ᵏ, and every prime factor of the Fermat number Fₙ is one more than a multiple of 2ⁿ⁺². “Chart only the primes ≡ 1 mod q” puts those primes on the chart and in the tree, with waves from every zero in the stack. The check button counts the zeros of every L-function two ways, as for ζ.</li>
       <li><strong>Primes that divide a Fermat number.</strong> A prime p divides Fₙ exactly when 2 has order 2ⁿ⁺¹ mod p. “Only primes that divide a Fermat number” lights the few that do: eleven below 5,000,000, five of them the Fermat primes. The L-functions see how many candidates there are, but every character takes the value 1 on all of them, so nothing in the stack tells 641, which divides F₅, from the thousands of candidates that divide nothing.</li>
+      <li><strong>Is 2 a 4th power?</strong> The stack reads only a prime’s remainder, and all candidates share one. The next dimension up reads how 2 itself behaves mod p. Gauss showed that for p one more than a multiple of 8, 2 is a 4th power mod p exactly when p = x² + 64y²; “Only primes where 2 is a 4th power” lights those primes, half of them. With it on, tapping a prime shows its form and the order of 2, the smallest power of 2 that leaves remainder 1.</li>
+      <li><strong>Narrowing the candidates.</strong> A prime divides Fₙ exactly when the order of 2 is 2ⁿ⁺¹. “Narrow down the primes that could divide a Fermat number” applies that in three steps. First, p is one more than a multiple of 2ⁿ⁺², which the stack counts. Second, the power-of-2 part of the order is 2ⁿ⁺¹, one law of the kind Gauss found, which about a third pass. Third, the odd part of the order is 1, a separate test for every odd prime dividing p − 1. For F₅, up to 5,000,000, that goes 5,460, then 1,840, then one prime: 641.</li>
       <li><strong>Spokes from 2.</strong> Only Fermat primes (3, 5, 17, 257, 65537) hang straight from 2, because their p − 1 is a power of 2.</li>
     </ul>
   </section>
