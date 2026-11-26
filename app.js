@@ -38,7 +38,8 @@
     rootToggle: $('rootToggle'), boundForm: $('boundForm'), bound: $('bound'), bounderr: $('bounderr'),
     runBar: $('runBar'), runStatus: $('runStatus'), stop: $('stop'), stats: $('stats'), legend: $('legend'), theme: $('theme'),
     fillToggle: $('fillToggle'), ringToggle: $('ringToggle'), zin: $('zin'), zout: $('zout'), zreset: $('zreset'), zfull: $('zfull'),
-    lineToggle: $('lineToggle'), planeToggle: $('planeToggle'), planeRow: $('planeRow'), solidToggle: $('solidToggle'), solidRow: $('solidRow'), crossToggle: $('crossToggle'), pathToggle: $('pathToggle'), pathRow: $('pathRow'), crossRow: $('crossRow'), crossNote: $('crossNote'),piToggle: $('piToggle'), waveToggle: $('waveToggle'), gapToggle: $('gapToggle'), zeroRow: $('zeroRow'), zeros: $('zeros'), zeroOut: $('zeroOut'),
+    lineToggle: $('lineToggle'), planeToggle: $('planeToggle'), planeRow: $('planeRow'), solidToggle: $('solidToggle'), solidRow: $('solidRow'), crossToggle: $('crossToggle'), pathToggle: $('pathToggle'), pathRow: $('pathRow'), soundToggle: $('soundToggle'), soundRow: $('soundRow'), soundSrc: $('soundSrc'),
+    soundDevRow: $('soundDevRow'), soundDev: $('soundDev'), soundFile: $('soundFile'), soundPlayer: $('soundPlayer'), soundGain: $('soundGain'), soundGainOut: $('soundGainOut'), soundNote: $('soundNote'), crossRow: $('crossRow'), crossNote: $('crossNote'),piToggle: $('piToggle'), waveToggle: $('waveToggle'), gapToggle: $('gapToggle'), zeroRow: $('zeroRow'), zeros: $('zeros'), zeroOut: $('zeroOut'),
     chartWrap: $('chartWrap'), chartKey: $('chartKey'), chart: $('pichart'), psiToggle: $('psiToggle'),
     zetaToggle: $('zetaToggle'), zetaRow: $('zetaRow'), zt: $('zt'), ztOut: $('ztOut'), checkBtn: $('checkBtn'), checkOut: $('checkOut'),
     zetaWrap: $('zetaWrap'), zetaKey: $('zetaKey'), zplane: $('zplane'),
@@ -134,6 +135,9 @@
   var WX, WY, WZ, cnt;                          /* world positions, live child counts */
   var SX, SY, SP;                               /* screen position and perspective scale, per frame */
   var E, stride = 0, edgeSegs = 0;              /* each edge as a polyline of world points */
+  /* W sizes the tree itself: the shorter side of the stage. VW × VH is the canvas, which is square on the
+     page but fills the whole screen in full screen, so the tree sits in the middle with room around it */
+  var VW = 0, VH = 0;
   var W = 0, dpr = 1, cx = 0, cy = 0, unit = 0, layerGap = 0, persp = 1, fit = 1;
   var spin = START_SPIN, tilt = START_TILT;      /* rotation about the stack, and of the stack */
   var cosS = 1, sinS = 0, cosT = 1, sinT = 0, outX = 0, outY = 0, outP = 1;
@@ -149,6 +153,12 @@
   var oneSolid = false;                          /* draw the primes as one solid, their convex hull, in place of everything else */
   var fillPlanes = false;                        /* shade the triangle of every three primes in a row on that line */
   var PLANE_FILL = [0, 0.07, 0.16, 0.3];         /* by how many layers the triangle spans: flat 2D, tilted 3D, three layers */
+  /* the shape bending to the music: def holds this frame's amounts, and vpa, vpr the hinge of the feather
+     the next projected point belongs to (the angle and radius of the prime it hangs from); NaN means the
+     point is its own hinge, so only the ripple across the whole disc moves it */
+  var def = { on: false, flap: 0, twist: 0, grow: 0, warp: 0, p1: 0, p2: 0, p3: 0, p4: 0, t: 0 };
+  var vpa = NaN, vpr = 0, dX = 0, dY = 0, dZ = 0, PA = null, PR = null;
+  var zPulse = 1;                                /* the layers spread apart with the bass while sound moves the tree */
   var pathOn = false;                            /* with the line on, light it from 2 up to the selected prime */
   var crossOnly = false;                         /* in place of the planes, only the points where one plane cuts through another */
   var CROSS_MAX = 160000;                        /* the crossings grow with the square of the primes, so stop counting past this many */
@@ -271,12 +281,12 @@
   function layerZ(g) { return (g - T.maxGen / 2) * layerGap; }
 
   function layout() {
-    var w = stage.clientWidth;
+    var w = stage.clientWidth, h = stage.clientHeight || w;
     if (!w) return;
-    if (W) { tx *= w / W; ty *= w / W; }          /* stay on the same spot when the stage changes size */
-    W = w; dpr = Math.min(window.devicePixelRatio || 1, 3);
-    cv.width = cv.height = glcv.width = glcv.height = Math.round(W * dpr);
-    cx = cy = W / 2;
+    if (VW) { tx *= w / VW; ty *= h / VH; }       /* stay on the same spot when the stage changes size */
+    VW = w; VH = h; W = Math.min(w, h); dpr = Math.min(window.devicePixelRatio || 1, 3);
+    cv.width = glcv.width = Math.round(VW * dpr); cv.height = glcv.height = Math.round(VH * dpr);
+    cx = VW / 2; cy = VH / 2;
     var rim = W / 2 - 14;
     unit = rim / T.exp;
     layerGap = T.maxGen ? W * TREE_HEIGHT / T.maxGen : 0;
@@ -290,6 +300,8 @@
       var r = i ? T.lg[i] * unit : 0;
       WX[i] = r * Math.cos(T.ang[i]); WY[i] = r * Math.sin(T.ang[i]); WZ[i] = layerZ(T.gen[i]);
     }
+    PA = new Float32Array(T.n); PR = new Float32Array(T.n);
+    for (i = 0; i < T.n; i++) { var j = i ? T.par[i] : 0; PA[i] = T.ang[j]; PR[i] = j ? T.lg[j] * unit : 0; }
     edgeSegs = T.n > 20000 ? 5 : T.n > 3000 ? 8 : 12;
     stride = (edgeSegs + 1) * 3;
     E = new Float32Array(T.n * stride);
@@ -313,8 +325,26 @@
 
   function setAngles() { cosS = Math.cos(spin); sinS = Math.sin(spin); cosT = Math.cos(tilt); sinT = Math.sin(tilt); }
 
+  /* A feather is a parent's children, so its hinge is the parent. Every point of it moves by the same rule,
+     scaled by how far it reaches past the hinge: it flaps up and down, twists sideways about the hinge, and
+     reaches out or draws back with the loudness of the hinge's band. Each feather's own angle sets its
+     phase, so neighbours move out of step. On top, the whole disc ripples with the bass. The GPU shader
+     does the same sums, so the planes stay on the line. */
+  function deform(x, y, z) {
+    var r = Math.sqrt(x * x + y * y), a = r > 1e-6 ? Math.atan2(y, x) : 0, pa = vpa, pr = vpr, R = W / 2;
+    if (pa !== pa) { pa = a; pr = r; }
+    var d = Math.min(1, Math.max(0, r - pr) / R);
+    var g = 1 + def.grow * Math.sin(pa * 11 + def.p3) + 0.6 * snd.E[bandAt(pr / unit)];
+    var r2 = pr + (r - pr) * g, a2 = a + def.twist * d * Math.sin(pa * 23 + def.p2);
+    dZ = z + def.flap * d * Math.sin(pa * 37 + def.p1) + def.warp * (r / R) * Math.sin(2 * a + def.p4);
+    dX = r2 * Math.cos(a2); dY = r2 * Math.sin(a2);
+  }
+  function bandAt(lg) { return Math.max(0, Math.min(SND_BANDS - 1, Math.floor((lg - 1) / Math.max(1e-6, T.exp - 1) * SND_BANDS))); }
+
   /* world to screen: spin about the stack, tilt the stack, then perspective, fit, and zoom */
   function view(x, y, z) {
+    z *= zPulse;
+    if (def.on) { deform(x, y, z); x = dX; y = dY; z = dZ; }
     var x1 = x * cosS - y * sinS, y1 = x * sinS + y * cosS;
     var y2 = y1 * cosT - z * sinT, z2 = y1 * sinT + z * cosT;
     outP = persp / (persp - z2) * fit;
@@ -323,10 +353,12 @@
 
   function addEdge(i) {
     var o = i * stride;
+    vpa = PA[i]; vpr = PR[i];
     for (var k = 0; k <= edgeSegs; k++, o += 3) {
       view(E[o], E[o + 1], E[o + 2]);
       if (k) ctx.lineTo(outX, outY); else ctx.moveTo(outX, outY);
     }
+    vpa = NaN;
   }
 
   /* a feather's outline: out along the first child's edge, across the tips, back down the
@@ -337,10 +369,12 @@
     if (n < FAN_MIN) return false;
     addEdge(c[0]);
     for (t = 1; t < n; t++) ctx.lineTo(SX[c[t]], SY[c[t]]);
+    vpa = PA[c[n - 1]]; vpr = PR[c[n - 1]];
     for (k = edgeSegs - 1, o = c[n - 1] * stride + k * 3; k >= 0; k--, o -= 3) {
       view(E[o], E[o + 1], E[o + 2]);
       ctx.lineTo(outX, outY);
     }
+    vpa = NaN;
     ctx.closePath();
     return true;
   }
@@ -435,12 +469,12 @@
     ctx.beginPath();
     for (k = 0; k < list.length && (i = list[k]) < m; k++) if (!(marked && marked[i])) { if (wholeLines) addStep(i); else addEdge(i); }
     ctx.strokeStyle = c; ctx.lineWidth = width;
-    ctx.globalAlpha = (marked ? DIM * 0.5 : wholeLines ? (big ? 0.3 : 0.4) : big ? 0.45 : 0.55) * f;
+    ctx.globalAlpha = Math.min(1, (marked ? DIM * 0.5 : wholeLines ? (big ? 0.3 : 0.4) : big ? 0.45 : 0.55) * f * (snd.live ? 1 + 1.2 * snd.level : 1));
     ctx.stroke();
 
     ctx.beginPath();
     for (k = 0; k < list.length && (i = list[k]) < m; k++) if (!isBig(i) && !(marked && marked[i])) {
-      r = dotSize(i); ctx.moveTo(SX[i] + r, SY[i]); ctx.arc(SX[i], SY[i], r, 0, TAU);
+      r = dotSize(i) * (snd.live ? 1 + 2.5 * snd.E[snd.band[i]] : 1); ctx.moveTo(SX[i] + r, SY[i]); ctx.arc(SX[i], SY[i], r, 0, TAU);
     }
     ctx.fillStyle = c; ctx.globalAlpha = (marked ? DIM : 1) * f; ctx.fill();
     ctx.globalAlpha = 1;
@@ -459,10 +493,12 @@
     if (!W) return;
     var m = upto(L), i, k, g;
     setAngles();
-    for (i = 0; i < m; i++) { view(WX[i], WY[i], WZ[i]); SX[i] = outX; SY[i] = outY; SP[i] = outP; }
+    def.on = snd.live && !reduceMotion;
+    for (i = 0; i < m; i++) { vpa = PA[i]; vpr = PR[i]; view(WX[i], WY[i], WZ[i]); SX[i] = outX; SY[i] = outY; SP[i] = outP; }
+    vpa = NaN;
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, W, W);
+    ctx.clearRect(0, 0, VW, VH);
     if (!wholeLines) drawRings(m);              /* the line reads better without the rings behind it */
 
     var solid = wholeLines && fillPlanes && oneSolid, dots = wholeLines && fillPlanes && crossOnly && !solid, bare = solid || dots;
@@ -641,26 +677,44 @@
   /* Both are drawn by WebGL into a second canvas under the 2D one. Each is uploaded once per tree, as one
      buffer laid out by layer, and every frame only the camera changes: the shader does what view() does.
      Growth draws fewer rows of the same buffer. Without WebGL, or if the context is lost, the 2D code draws them. */
-  var VERT = 7;                                  /* per vertex: x, y in log₂ units, generation, colour layer, opacity, the two generations that hide it */
-  function putVert(D, o, x, y, z, layer, alpha, ga, gb) {
+  var VERT = 9;                                  /* per vertex: x, y in log₂ units, generation, colour layer, opacity, the two generations that hide it */
+  /* pa, pr: the hinge, as the angle and log₂ radius of the prime the point hangs from; pr < 0 for its own */
+  function putVert(D, o, x, y, z, layer, alpha, ga, gb, pa, pr) {
     D[o] = x; D[o + 1] = y; D[o + 2] = z; D[o + 3] = layer; D[o + 4] = alpha; D[o + 5] = ga; D[o + 6] = gb;
+    D[o + 7] = pa === undefined ? 0 : pa; D[o + 8] = pr === undefined ? -1 : pr;
     return o + VERT;
   }
 
   var GL_VS = [
-    'attribute vec3 a_pos; attribute vec4 a_info;',
-    'uniform vec2 u_spin, u_tilt, u_c, u_t; uniform float u_persp, u_fit, u_s, u_W, u_unit, u_gap, u_half, u_halfH, u_dim, u_size;',
+    'attribute vec3 a_pos; attribute vec4 a_info; attribute vec2 a_piv;',
+    'uniform float u_on, u_exp; uniform vec4 u_def, u_ph, u_E[12];',
+    'float bandE(float lg) {',
+    '  float b = clamp(floor((lg - 1.0) / max(u_exp - 1.0, 1e-6) * 48.0), 0.0, 47.0), m = mod(b, 4.0);',
+    '  vec4 q = u_E[int(b / 4.0)];',
+    '  return m < 0.5 ? q.x : m < 1.5 ? q.y : m < 2.5 ? q.z : q.w;',
+    '}',
+    'uniform vec2 u_spin, u_tilt, u_c, u_t; uniform vec2 u_vp; uniform float u_persp, u_fit, u_s, u_W, u_unit, u_gap, u_half, u_halfH, u_dim, u_size;',
     'uniform vec3 u_col[32]; uniform float u_hidden[32];',
     'varying vec4 v_col;',
     'void main() {',
     '  float layer = a_info.x;',
     '  if (u_hidden[int(a_info.z + 0.5)] > 0.5 || u_hidden[int(a_info.w + 0.5)] > 0.5) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); gl_PointSize = 0.0; v_col = vec4(0.0); return; }',
     '  float x = a_pos.x * u_unit, y = a_pos.y * u_unit, z = (a_pos.z - u_half) * u_gap;',
+    '  if (u_on > 0.5) {',
+    '    float r = length(vec2(x, y)), a = r > 1e-6 ? atan(y, x) : 0.0, R = u_W / 2.0;',
+    '    float pa = a_piv.x, pr = a_piv.y * u_unit;',
+    '    if (a_piv.y < 0.0) { pa = a; pr = r; }',
+    '    float d = min(1.0, max(0.0, r - pr) / R);',
+    '    float g = 1.0 + u_def.z * sin(pa * 11.0 + u_ph.z) + 0.6 * bandE(pr / u_unit);',
+    '    float r2 = pr + (r - pr) * g, a2 = a + u_def.y * d * sin(pa * 23.0 + u_ph.y);',
+    '    z += u_def.x * d * sin(pa * 37.0 + u_ph.x) + u_def.w * (r / R) * sin(2.0 * a + u_ph.w);',
+    '    x = r2 * cos(a2); y = r2 * sin(a2);',
+    '  }',
     '  float x1 = x * u_spin.x - y * u_spin.y, y1 = x * u_spin.y + y * u_spin.x;',
     '  float y2 = y1 * u_tilt.x - z * u_tilt.y, z2 = y1 * u_tilt.y + z * u_tilt.x;',
     '  float p = u_persp / (u_persp - z2) * u_fit;',
     '  vec2 scr = (u_c + vec2(x1, y2) * p) * u_s + u_t;',
-    '  gl_Position = vec4(scr.x / u_W * 2.0 - 1.0, 1.0 - scr.y / u_W * 2.0, 0.0, 1.0);',
+    '  gl_Position = vec4(scr.x / u_vp.x * 2.0 - 1.0, 1.0 - scr.y / u_vp.y * 2.0, 0.0, 1.0);',
     '  gl_PointSize = u_size;',
     '  float fog = u_halfH > 0.0 ? 0.7 + 0.3 * ((layer - u_half) * u_gap * u_tilt.x) / u_halfH : 1.0;',
     '  float a = clamp(a_info.y * u_dim * fog, 0.0, 1.0);',
@@ -679,12 +733,12 @@
     gl.linkProgram(glp);
     if (!gl.getProgramParameter(glp, gl.LINK_STATUS)) { gl = null; glFailed = true; return false; }
     glu = {};
-    ['u_spin', 'u_tilt', 'u_c', 'u_t', 'u_persp', 'u_fit', 'u_s', 'u_W', 'u_unit', 'u_gap', 'u_half', 'u_halfH', 'u_dim', 'u_size', 'u_col', 'u_hidden']
+    ['u_spin', 'u_tilt', 'u_c', 'u_t', 'u_persp', 'u_fit', 'u_s', 'u_W', 'u_unit', 'u_gap', 'u_half', 'u_halfH', 'u_dim', 'u_size', 'u_col', 'u_hidden', 'u_on', 'u_exp', 'u_def', 'u_ph', 'u_E', 'u_vp']
       .forEach(function (u) { glu[u] = gl.getUniformLocation(glp, u); });
-    glu.pos = gl.getAttribLocation(glp, 'a_pos'); glu.info = gl.getAttribLocation(glp, 'a_info');
+    glu.pos = gl.getAttribLocation(glp, 'a_pos'); glu.info = gl.getAttribLocation(glp, 'a_info'); glu.piv = gl.getAttribLocation(glp, 'a_piv');
     gl.useProgram(glp);
     gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);   /* premultiplied, like the 2D canvas */
-    gl.enableVertexAttribArray(glu.pos); gl.enableVertexAttribArray(glu.info);
+    gl.enableVertexAttribArray(glu.pos); gl.enableVertexAttribArray(glu.info); gl.enableVertexAttribArray(glu.piv);
     /* the 2D canvas fills each group of shapes as one path, so where they overlap a pixel is shaded once.
        The stencil does the same here: each group gets its own number, and a pixel takes the group's colour
        only if it doesn't already carry that number */
@@ -710,8 +764,8 @@
     gl.clearColor(0, 0, 0, 0); gl.clearStencil(0); gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT); glShown = true; glGroup = 0;
     gl.uniform2f(glu.u_spin, cosS, sinS); gl.uniform2f(glu.u_tilt, cosT, sinT);
     gl.uniform2f(glu.u_c, cx, cy); gl.uniform2f(glu.u_t, tx, ty);
-    gl.uniform1f(glu.u_persp, persp); gl.uniform1f(glu.u_fit, fit); gl.uniform1f(glu.u_s, s); gl.uniform1f(glu.u_W, W);
-    gl.uniform1f(glu.u_unit, unit); gl.uniform1f(glu.u_gap, layerGap); gl.uniform1f(glu.u_half, T.maxGen / 2); gl.uniform1f(glu.u_halfH, layerGap * T.maxGen / 2);
+    gl.uniform1f(glu.u_persp, persp); gl.uniform1f(glu.u_fit, fit); gl.uniform1f(glu.u_s, s); gl.uniform1f(glu.u_W, W); gl.uniform2f(glu.u_vp, VW, VH);
+    gl.uniform1f(glu.u_unit, unit); gl.uniform1f(glu.u_gap, layerGap * zPulse); gl.uniform1f(glu.u_half, T.maxGen / 2); gl.uniform1f(glu.u_halfH, layerGap * T.maxGen / 2);
     if (glColKey !== col) {
       glColKey = col;
       for (var k = 0; k < 32; k++) { var c = rgb(col[Math.min(k + 1, col.length) - 1]); glCols[3 * k] = c[0] / 255; glCols[3 * k + 1] = c[1] / 255; glCols[3 * k + 2] = c[2] / 255; }
@@ -719,6 +773,11 @@
     }
     for (var g = 0; g < 32; g++) glHide[g] = g && genHidden(g) ? 1 : 0;
     gl.uniform1fv(glu.u_hidden, glHide);
+    gl.uniform1f(glu.u_on, def.on ? 1 : 0); gl.uniform1f(glu.u_exp, T.exp);
+    if (def.on) {
+      gl.uniform4f(glu.u_def, def.flap, def.twist, def.grow, def.warp); gl.uniform4f(glu.u_ph, def.p1, def.p2, def.p3, def.p4);
+      gl.uniform4fv(glu.u_E, snd.E);
+    }
   }
   var glGroup = 0;
   function glDraw(mode, first, count) {
@@ -731,6 +790,7 @@
     else gl.bindBuffer(gl.ARRAY_BUFFER, entry.buf);
     gl.vertexAttribPointer(glu.pos, 3, gl.FLOAT, false, VERT * 4, 0);
     gl.vertexAttribPointer(glu.info, 4, gl.FLOAT, false, VERT * 4, 12);
+    gl.vertexAttribPointer(glu.piv, 2, gl.FLOAT, false, VERT * 4, 28);
   }
   /* a new tree replaces the buffers; the old ones are freed on the GPU straight away */
   function glFree(entry) { if (gl && entry && entry.buf) { gl.deleteBuffer(entry.buf); entry.buf = null; } }
@@ -756,9 +816,10 @@
         start[g][d] = o / VERT;
         ms[g][d] = Int32Array.from(groups[g][d], function (i) { return i + 1; });   /* drawn once prime i + 1 has grown in */
         groups[g][d].forEach(function (i) {
-          o = putVert(D, o, X[i - 1], Y[i - 1], T.gen[i - 1], g, PLANE_FILL[d], g, g);
-          o = putVert(D, o, X[i], Y[i], g, g, PLANE_FILL[d], g, g);
-          o = putVert(D, o, X[i + 1], Y[i + 1], T.gen[i + 1], g, PLANE_FILL[d], g, g);
+          [i - 1, i, i + 1].forEach(function (v) {
+            var j = v ? T.par[v] : 0;
+            o = putVert(D, o, X[v], Y[v], T.gen[v], g, PLANE_FILL[d], g, g, T.ang[j], j ? T.lg[j] : 0);
+          });
         });
       }
     }
@@ -967,16 +1028,16 @@
     ctx.font = '500 12px ' + font; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     [a, b].forEach(function (i) {
       var sx = SX[i], sy = SY[i];
-      if (sx < 0 || sy < 0 || sx > W || sy > W) return;
+      if (sx < 0 || sy < 0 || sx > VW || sy > VH) return;
       var label = fmt(T.P[i]), w = ctx.measureText(label).width + 12;
-      var len = Math.hypot(sx - W / 2, sy - W / 2) || 1, ux = (sx - W / 2) / len, uy = (sy - W / 2) / len;
+      var len = Math.hypot(sx - VW / 2, sy - VH / 2) || 1, ux = (sx - VW / 2) / len, uy = (sy - VH / 2) / len;
       var bx = sx + ux * (w / 2 + GAP_PX), by = sy + uy * (H / 2 + GAP_PX);
       /* no room outside the rim: sit on the inner side rather than cover the dot */
-      if (bx < w / 2 + 2 || bx > W - w / 2 - 2 || by < H / 2 + 2 || by > W - H / 2 - 2) {
+      if (bx < w / 2 + 2 || bx > VW - w / 2 - 2 || by < H / 2 + 2 || by > VH - H / 2 - 2) {
         bx = sx - ux * (w / 2 + GAP_PX); by = sy - uy * (H / 2 + GAP_PX);
       }
       if (placed && Math.abs(bx - placed.x) < (w + placed.w) / 2 + 2 && Math.abs(by - placed.y) < H + 2) {
-        by = placed.y + (by >= placed.y && placed.y + H + 2 <= W - H / 2 ? 1 : -1) * (H + 2);
+        by = placed.y + (by >= placed.y && placed.y + H + 2 <= VH - H / 2 ? 1 : -1) * (H + 2);
       }
       ctx.beginPath();
       if (ctx.roundRect) ctx.roundRect(bx - w / 2, by - H / 2, w, H, 6); else ctx.rect(bx - w / 2, by - H / 2, w, H);
@@ -1916,8 +1977,9 @@
       ui.grow.value = Math.round((L - 1) / (T.exp - 1) * 1000);
       if (L >= T.exp) { playing = false; setPlayButton(); }
     }
+    if (snd.live) soundStep(ts);
     draw(ts);
-    if (playing) schedule();
+    if (playing || snd.live) schedule();
   }
 
   function setPlayButton() {
@@ -1933,21 +1995,22 @@
   function clampView() {
     if (s <= 1.0001) { s = 1; tx = 0; ty = 0; }
     else {
-      tx = Math.min(0, Math.max(W - W * s, tx));
-      ty = Math.min(0, Math.max(W - W * s, ty));
+      tx = Math.min(0, Math.max(VW - VW * s, tx));
+      ty = Math.min(0, Math.max(VH - VH * s, ty));
     }
   }
   function zoomAt(px, py, factor) {
+    userAt = performance.now();
     var ns = Math.min(60, Math.max(1, s * factor)), f = ns / s;
     tx = px - (px - tx) * f; ty = py - (py - ty) * f; s = ns;
     clampView(); schedule();
   }
   function resetView() { s = 1; clampView(); schedule(); }
-  function resetAngle() { spin = START_SPIN; tilt = START_TILT; resetView(); }
+  function resetAngle() { spin = START_SPIN; tilt = START_TILT; userAt = performance.now(); resetView(); }
 
-  function local(e) { var b = cv.getBoundingClientRect(); return { x: (e.clientX - b.left) * W / b.width, y: (e.clientY - b.top) * W / b.height }; }
+  function local(e) { var b = cv.getBoundingClientRect(); return { x: (e.clientX - b.left) * VW / b.width, y: (e.clientY - b.top) * VH / b.height }; }
 
-  var pts = new Map(), down = null, moved = false, pinch = null;
+  var pts = new Map(), down = null, moved = false, pinch = null, userAt = -1e9;   /* userAt: when the visitor last moved the view */
   cv.addEventListener('pointerdown', function (e) {
     try { cv.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
     var p = local(e); pts.set(e.pointerId, p);
@@ -1960,6 +2023,7 @@
   }
   cv.addEventListener('pointermove', function (e) {
     if (!pts.has(e.pointerId)) return;
+    userAt = performance.now();
     var prev = pts.get(e.pointerId), p = local(e);
     pts.set(e.pointerId, p);
     if (pts.size === 1) {
@@ -1996,8 +2060,8 @@
     zoomAt(p.x, p.y, Math.exp(-dy * 0.0015));
   }, { passive: false });
   cv.addEventListener('dblclick', function (e) { e.preventDefault(); resetAngle(); });
-  ui.zin.addEventListener('click', function () { zoomAt(W / 2, W / 2, 1.6); });
-  ui.zout.addEventListener('click', function () { zoomAt(W / 2, W / 2, 1 / 1.6); });
+  ui.zin.addEventListener('click', function () { zoomAt(VW / 2, VH / 2, 1.6); });
+  ui.zout.addEventListener('click', function () { zoomAt(VW / 2, VH / 2, 1 / 1.6); });
   ui.zreset.addEventListener('click', resetAngle);
 
   /* full screen holds the transport too, so the growth controls stay in reach */
@@ -2086,6 +2150,230 @@
     ui.crossNote.hidden = !(sub && crossOnly && !oneSolid);
     ui.crossToggle.checked = crossOnly; ui.solidToggle.checked = oneSolid;
   }
+  /* ---------- sound ---------- */
+
+  /* The tree's radius is log₂ p and pitch is heard on a log scale too, so each prime listens to the band of
+     pitches at its own radius: 2 and the small primes near the centre to the bass, the rims to the treble.
+     A prime's dot swells with the loudness of its band, the line brightens with the overall level, the bass
+     pushes the layers apart, and the middle of the range turns the tree. Only loudness per band is
+     measured, frame by frame; nothing is recorded or kept. */
+  var SND_BANDS = 48, SND_LO = 40, SND_HI = 12000;
+  var snd = { live: false, ctx: null, an: null, bins: null, src: null, stream: null, fileSrc: null, gain: 1,
+              E: new Float32Array(SND_BANDS), band: null, bandT: null, level: 0, bass: 0, mid: 0, lastTs: 0, lo: null, hi: null };
+
+  function soundNote(text) { ui.soundNote.textContent = text || ''; }
+
+  /* which band each prime listens to, and which FFT bins make up each band */
+  function soundBands() {
+    if (snd.bandT !== T) {
+      snd.band = new Uint8Array(T.n);
+      for (var i = 0; i < T.n; i++) snd.band[i] = Math.max(0, Math.min(SND_BANDS - 1, Math.floor((T.lg[i] - 1) / Math.max(1e-9, T.exp - 1) * SND_BANDS)));
+      snd.bandT = T;
+    }
+    if (!snd.lo) {
+      var hz = snd.ctx.sampleRate / snd.an.fftSize, b;
+      snd.lo = new Uint16Array(SND_BANDS); snd.hi = new Uint16Array(SND_BANDS);
+      for (b = 0; b < SND_BANDS; b++) {
+        snd.lo[b] = Math.max(1, Math.floor(SND_LO * Math.pow(SND_HI / SND_LO, b / SND_BANDS) / hz));
+        snd.hi[b] = Math.min(snd.bins.length - 1, Math.max(snd.lo[b], Math.ceil(SND_LO * Math.pow(SND_HI / SND_LO, (b + 1) / SND_BANDS) / hz)));
+      }
+    }
+  }
+
+  function soundStep(ts) {
+    soundBands();
+    snd.an.getByteFrequencyData(snd.bins);
+    var b, k, sum, v, bass = 0, mid = 0, all = 0;
+    for (b = 0; b < SND_BANDS; b++) {
+      for (sum = 0, k = snd.lo[b]; k <= snd.hi[b]; k++) sum += snd.bins[k];
+      v = Math.min(1.5, sum / (snd.hi[b] - snd.lo[b] + 1) / 255 * snd.gain);
+      v = v * v;                                                         /* quiet bands stay still, loud ones jump */
+      snd.E[b] = Math.max(v, snd.E[b] * 0.86);                           /* rise at once, fall away over a few frames */
+      all += snd.E[b];
+      if (b < SND_BANDS * 0.2) bass += snd.E[b]; else if (b < SND_BANDS * 0.6) mid += snd.E[b];
+    }
+    snd.level = all / SND_BANDS; snd.bass = bass / (SND_BANDS * 0.2); snd.mid = mid / (SND_BANDS * 0.4);
+    zPulse = 1 + 0.5 * Math.min(1.5, snd.bass);
+    var dt = snd.lastTs ? Math.min(ts - snd.lastTs, 100) / 1000 : 0;
+    snd.lastTs = ts;
+    if (!reduceMotion) { wander(dt, ts); bend(dt); }
+  }
+
+  /* how far the feathers flap, twist and grow this frame, eased so they swing rather than jitter */
+  function bend(dt) {
+    var e = Math.min(1.5, snd.level), b = Math.min(1.5, snd.bass), m = Math.min(1.5, snd.mid), k = 1 - Math.exp(-dt * 6);
+    def.t += dt * (0.6 + 2.2 * e);
+    def.p1 = def.t * 2.4; def.p2 = def.t * 0.8; def.p3 = def.t * 1.1; def.p4 = def.t * 0.5;
+    def.flap += (W * (0.015 + 0.09 * Math.min(1.2, b + 0.5 * e)) - def.flap) * k;
+    def.twist += (0.1 + 0.55 * m - def.twist) * k;
+    def.grow += (0.05 + 0.25 * e - def.grow) * k;
+    def.warp += (W * 0.05 * b - def.warp) * k;
+  }
+
+  /* The camera roams the whole tree: it turns either way, rises over the top and dips below the stack,
+     closes in on one part and pulls back out. Each motion follows its own sum of waves with random
+     frequencies, so the path never repeats; the music drives it along faster, and a hard bass hit kicks
+     it towards somewhere new. It eases towards each target, so it never jumps, and it leaves the camera
+     alone for a few seconds after the visitor drags, scrolls or zooms. */
+  var WANDER_HOLD = 3000;                        /* ms the camera stays where the visitor left it */
+  var wnd = null;
+  function wave() {
+    var f = [], k;
+    for (k = 0; k < 3; k++) f.push({ a: (0.13 + Math.random() * 0.5) * (k + 1), p: Math.random() * TAU, w: [1, 0.6, 0.35][k] });
+    return function (t) { var v = 0; for (var k = 0; k < 3; k++) v += f[k].w * Math.sin(f[k].a * t + f[k].p); return v / 1.95; };
+  }
+  function wander(dt, ts) {
+    if (!wnd) wnd = { t: Math.random() * 100, vel: 0, bassAvg: 0, kickAt: 0, turn: wave(), rise: wave(), near: wave(), fx: wave(), fy: wave() };
+    var energy = Math.min(1.5, snd.level), bass = Math.min(1.5, snd.bass), mid = Math.min(1.5, snd.mid);
+    /* a bass hit well above the recent average: a random push sideways and a jump along the path */
+    wnd.bassAvg += (bass - wnd.bassAvg) * Math.min(1, dt * 2);
+    if (bass > wnd.bassAvg * 1.5 + 0.08 && ts - wnd.kickAt > 350) {
+      wnd.kickAt = ts; wnd.vel += (Math.random() * 2 - 1) * (0.8 + bass); wnd.t += Math.random() * 3;
+    }
+    wnd.t += dt * (0.12 + 1.1 * energy + 0.6 * mid);
+    if (ts - userAt < WANDER_HOLD || pts.size) return;
+    var t = wnd.t, ease = 1 - Math.exp(-dt * 0.9);
+    /* turning: a speed that drifts, sometimes through zero into the other direction */
+    var dir = Math.tanh(2.5 * wnd.turn(t)), target = dir * (0.12 + 0.9 * mid);
+    wnd.vel += (target - wnd.vel) * (1 - Math.exp(-dt * 1.5));
+    spin += wnd.vel * dt;
+    /* rising and falling: from almost overhead to a little below the stack */
+    tilt += (1.2 + 0.95 * wnd.rise(t) - tilt) * ease;
+    /* closing in on a wandering point, then pulling back out to the whole tree */
+    var n = 0.5 + 0.5 * wnd.near(t), zs = 1 + 1.1 * n * n;
+    var fx = VW * (0.5 + 0.32 * wnd.fx(t * 0.8)), fy = VH * (0.5 + 0.32 * wnd.fy(t * 0.8));
+    s += (zs - s) * ease;
+    tx += (fx * (1 - s) - tx) * ease; ty += (fy * (1 - s) - ty) * ease;
+    clampView();
+  }
+
+  function soundContext() {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    if (!snd.ctx) {
+      snd.ctx = new AC();
+      snd.an = snd.ctx.createAnalyser();
+      snd.an.fftSize = 4096; snd.an.smoothingTimeConstant = 0.6; snd.an.minDecibels = -85; snd.an.maxDecibels = -20;
+      snd.bins = new Uint8Array(snd.an.frequencyBinCount);
+    }
+    if (snd.ctx.state === 'suspended') snd.ctx.resume();                /* Safari starts it suspended until a tap */
+    return snd.ctx;
+  }
+
+  /* music wants the raw signal: the voice-call clean-up would flatten it */
+  var RAW = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+
+  function soundStopInput() {
+    if (snd.src) { try { snd.src.disconnect(); } catch (e) { /* already */ } snd.src = null; }
+    if (snd.stream) { snd.stream.getTracks().forEach(function (t) { t.stop(); }); snd.stream = null; }
+    if (snd.fileSrc) { try { snd.fileSrc.disconnect(); } catch (e) { /* already */ } }
+    ui.soundPlayer.pause();
+  }
+
+  function soundStop() {
+    soundStopInput();
+    snd.live = false; snd.lastTs = 0; snd.level = snd.bass = snd.mid = 0; snd.E.fill(0); zPulse = 1;
+    if (snd.ctx && snd.ctx.state === 'running') snd.ctx.suspend();
+    schedule();
+  }
+
+  function soundFail(text) { soundStop(); ui.soundToggle.checked = false; ui.soundRow.hidden = false; soundNote(text); }
+
+  function soundListen(stream) {
+    snd.stream = stream;
+    snd.src = snd.ctx.createMediaStreamSource(stream);
+    snd.src.connect(snd.an);                                            /* not on to the speakers: that would feed back */
+    stream.getAudioTracks()[0].addEventListener('ended', function () {
+      if (snd.stream === stream) { soundFail('The sound stopped, for example because sharing ended.'); }
+    });
+    snd.live = true; schedule();
+  }
+
+  function soundDevices() {
+    if (!navigator.mediaDevices.enumerateDevices) return;
+    navigator.mediaDevices.enumerateDevices().then(function (list) {
+      var ins = list.filter(function (d) { return d.kind === 'audioinput'; }), keep = ui.soundDev.value;
+      ui.soundDev.textContent = '';
+      ins.forEach(function (d, k) {
+        var o = document.createElement('option');
+        o.value = d.deviceId; o.textContent = d.label || 'Input ' + (k + 1);
+        ui.soundDev.appendChild(o);
+      });
+      if (keep) ui.soundDev.value = keep;
+      ui.soundDevRow.hidden = ins.length < 2 || ui.soundSrc.value !== 'mic';
+    }).catch(function () { /* labels need permission; the list just stays short */ });
+  }
+
+  function blocked(err, what) {
+    var name = err && err.name;
+    if (name === 'NotAllowedError' || name === 'SecurityError')
+      return what + ' was blocked. Allow it in the browser’s site settings' +
+        (/Mac/.test(navigator.platform || navigator.userAgent) ? ', and for the browser in System Settings → Privacy & Security.' : '.');
+    if (name === 'NotFoundError') return 'No ' + what.toLowerCase() + ' was found.';
+    return what + ' could not start' + (err && err.message ? ': ' + err.message : '.');
+  }
+
+  function soundStart() {
+    var src = ui.soundSrc.value;
+    soundStopInput(); soundNote('');
+    ui.soundDevRow.hidden = src !== 'mic' || ui.soundDev.options.length < 2;
+    ui.soundPlayer.hidden = src !== 'file';
+    if (!soundContext()) return soundFail('This browser can’t analyse sound.');
+    if (src === 'file') {
+      if (!ui.soundPlayer.src) { ui.soundFile.click(); soundNote('Choose a file to play.'); return; }
+      soundFile();
+      return;
+    }
+    var md = navigator.mediaDevices;
+    if (!window.isSecureContext || !md) return soundFail('Listening needs the page served over https, or from localhost.');
+    if (src === 'mic') {
+      var dev = ui.soundDev.value, audio = Object.assign({}, RAW, dev ? { deviceId: { exact: dev } } : {});
+      md.getUserMedia({ audio: audio, video: false }).then(function (stream) {
+        if (!ui.soundToggle.checked || ui.soundSrc.value !== 'mic') { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
+        soundListen(stream); soundDevices();
+        soundNote('Listening to ' + (stream.getAudioTracks()[0].label || 'the microphone') + '.');
+      }).catch(function (err) { soundFail(blocked(err, 'The microphone')); });
+    } else {
+      if (!md.getDisplayMedia) return soundFail('This browser can’t share a tab’s sound. Try the microphone, an audio file, or Chrome or Edge.');
+      /* browsers only share sound along with a picture; the picture is never used */
+      md.getDisplayMedia({ video: true, audio: RAW, systemAudio: 'include', selfBrowserSurface: 'exclude' }).then(function (stream) {
+        if (!stream.getAudioTracks().length) {
+          stream.getTracks().forEach(function (t) { t.stop(); });
+          return soundFail('No sound came with the share. Share a tab and turn on “Share tab audio”, or on Windows share the entire screen with “Share system audio”.');
+        }
+        if (!ui.soundToggle.checked || ui.soundSrc.value !== 'share') { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
+        soundListen(stream);
+        soundNote('Listening to the shared sound. Stop sharing, or turn this off, to end it.');
+      }).catch(function (err) { soundFail(err && err.name === 'NotAllowedError' ? 'Sharing was cancelled.' : blocked(err, 'Sharing')); });
+    }
+  }
+
+  /* a file plays through the page, so it goes on to the speakers as well as to the analyser */
+  function soundFile() {
+    if (!snd.fileSrc) snd.fileSrc = snd.ctx.createMediaElementSource(ui.soundPlayer);   /* only once per element */
+    snd.fileSrc.connect(snd.an); snd.fileSrc.connect(snd.ctx.destination);
+    ui.soundPlayer.hidden = false;
+    ui.soundPlayer.play().catch(function () { soundNote('Press play to start the file.'); });
+    snd.live = true; schedule();
+  }
+
+  ui.soundToggle.addEventListener('change', function () {
+    ui.soundRow.hidden = !ui.soundToggle.checked;
+    if (ui.soundToggle.checked) soundStart(); else { soundStop(); soundNote(''); }
+  });
+  ui.soundSrc.addEventListener('change', function () { if (ui.soundToggle.checked) soundStart(); });
+  ui.soundDev.addEventListener('change', function () { if (ui.soundToggle.checked && ui.soundSrc.value === 'mic') soundStart(); });
+  ui.soundFile.addEventListener('change', function () {
+    var f = ui.soundFile.files && ui.soundFile.files[0];
+    if (!f) return;
+    if (ui.soundPlayer.src) URL.revokeObjectURL(ui.soundPlayer.src);
+    ui.soundPlayer.src = URL.createObjectURL(f);
+    soundNote('Playing ' + f.name + '.');
+    if (ui.soundToggle.checked && ui.soundSrc.value === 'file') { soundContext(); soundStopInput(); soundFile(); }
+  });
+  ui.soundPlayer.addEventListener('click', function () { if (!ui.soundPlayer.src) ui.soundFile.click(); });
+  ui.soundGain.addEventListener('input', function () { snd.gain = +ui.soundGain.value; ui.soundGainOut.value = ui.soundGainOut.textContent = snd.gain + '×'; });
+
   ui.pathToggle.addEventListener('change', function () { pathOn = ui.pathToggle.checked; writeHash(); schedule(); });
   ui.lineToggle.addEventListener('change', function () { wholeLines = ui.lineToggle.checked; syncPlaneRows(); writeHash(); schedule(); });
   ui.planeToggle.addEventListener('change', function () { fillPlanes = ui.planeToggle.checked; syncPlaneRows(); writeHash(); schedule(); });

@@ -48,9 +48,11 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .zoom .fs-exit, .is-full .fs-enter { display: none; }
 .is-full .fs-exit { display: block; }
 
-/* full screen: the canvas must stay square, so take the largest square that leaves room for the transport */
-.stage-col.is-full { --side: min(calc(100vw - 32px), calc(100vh - 92px)); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px; background: var(--bg); }
-.is-full .stage, .is-full .transport { width: var(--side); max-width: none; flex: none; margin-left: 0; margin-right: 0; }
+/* full screen: the tree's canvas takes the whole screen less the transport and any charts below it;
+   --side still sizes those charts, so they keep the share of the height they had */
+.stage-col.is-full { --side: min(calc(100vw - 32px), calc(100vh - 92px)); display: flex; flex-direction: column; align-items: center; justify-content: center; box-sizing: border-box; width: 100vw; height: 100vh; padding: 16px; background: var(--bg); }
+.is-full .stage { width: 100%; max-width: none; aspect-ratio: auto; flex: 1 1 auto; min-height: 0; margin: 0; }
+.is-full .transport { width: 100%; max-width: none; flex: none; margin-left: 0; margin-right: 0; }
 
 .transport { display: flex; align-items: center; gap: 14px; max-width: min(760px, 78vh); margin: 14px auto 0; }
 .play { width: 44px; height: 44px; padding: 0; flex: none; display: grid; place-items: center; }
@@ -92,6 +94,8 @@ progress[hidden], .ghost[hidden] { display: none; }
 .check[hidden] { display: none; }
 .sub-note { margin: -6px 0 0; padding-left: 28px; font-size: 12px; line-height: 1.4; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .sub-note[hidden] { display: none; }
+.sound-player { width: 100%; margin: 4px 0 10px; }
+.sound-player[hidden], #soundDevRow[hidden] { display: none; }
 .waves { display: flex; flex-direction: column; gap: 12px; }
 .zero-row .row { display: flex; align-items: center; gap: 10px; }
 .zero-row output { min-width: 3ch; text-align: right; font-size: 14px; font-variant-numeric: tabular-nums; }

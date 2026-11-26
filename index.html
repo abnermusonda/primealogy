@@ -148,6 +148,33 @@
         </label>
       </div>
 
+      <div class="card waves">
+        <label class="check">
+          <input id="soundToggle" type="checkbox">
+          <span>Move to sound, from the microphone or music on this device</span>
+        </label>
+        <div id="soundRow" class="zero-row" hidden>
+          <label class="label" for="soundSrc">Listen to</label>
+          <select id="soundSrc">
+            <option value="mic">Microphone or another audio input</option>
+            <option value="share">Sound from a browser tab or the screen</option>
+            <option value="file">An audio file</option>
+          </select>
+          <div id="soundDevRow" hidden>
+            <label class="label" for="soundDev">Input</label>
+            <select id="soundDev"></select>
+          </div>
+          <input id="soundFile" type="file" accept="audio/*" hidden>
+          <audio id="soundPlayer" class="sound-player" controls hidden></audio>
+          <label class="label" for="soundGain">Sensitivity</label>
+          <div class="row">
+            <input id="soundGain" type="range" min="0.25" max="4" step="0.25" value="1">
+            <output id="soundGainOut" for="soundGain">1×</output>
+          </div>
+          <div id="soundNote" class="err note" role="status"></div>
+        </div>
+      </div>
+
       <label class="card check">
         <input id="ringToggle" type="checkbox">
         <span>Size generation rings by largest prime</span>
@@ -282,6 +309,7 @@
       <li><strong>Web fonts:</strong> with your consent the page loads Playfair Display and Outfit from Google Fonts. Google then receives the ordinary connection details of that request, such as your IP address. Without consent the page uses the fonts already on your device and looks much the same.</li>
       <li><strong>Saved in this browser:</strong> your color theme and this consent choice. Nothing else is stored.</li>
       <li><strong>The link:</strong> the address bar carries the current settings, such as the limit and the selected prime, so a link you copy shows what you were looking at. It never includes anything personal.</li>
+      <li><strong>Sound:</strong> only while “Move to sound” is on. The page listens to the microphone, to a tab or screen you choose to share, or to a file you pick, and measures how loud each pitch is, moment to moment, to move the tree. Nothing is recorded, saved or sent.</li>
       <li><strong>Your processor:</strong> counting past 5,000,000 runs on most of your CPU cores until it ends or you press Stop. It starts only when you press Go.</li>
     </ul>
     <div class="privacy-note">You can change your mind at any time from the “Privacy &amp; data” button under the controls.</div>

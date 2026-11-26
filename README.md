@@ -86,6 +86,15 @@ Play or pause the growth, scrub with the slider, tap a dot to trace its line bac
 prime (up to 5,000,000), set the upper limit, fill in the feathers, join all the primes in order, size the generation rings by largest prime, plot π(x) against Li(x) and add Riemann's waves from up to 200 zeta zeros, pick which generations to show from the color key, go full screen, drag to rotate the tree on both axes, pinch or scroll to zoom, and shift-drag to pan when zoomed in. Each
 generation is its own layer. A double-click or the reset button restores the starting view. Visitors who prefer reduced motion see the finished tree without the animation.
 
+"Move to sound" turns the tree into a music visualization. It listens to the microphone or any other audio input, to the sound of a browser tab or the screen, or to an audio file played on the page. Each prime listens to the band of pitches at its own radius, since both the radius and pitch are on log scales, so the small primes near the center follow the bass and the rims follow the treble. A prime's dot swells with the loudness of its band, the line brightens with the overall level, the bass pushes the layers apart, and the middle of the range turns the tree. Only loudness per band is measured; nothing is recorded, saved or sent. Listening needs https or localhost.
+
+To use music already playing on the computer:
+
+- **Any browser, Mac or PC:** play the file on the page with "An audio file".
+- **Chrome or Edge:** pick "Sound from a browser tab or the screen" and share the tab that's playing, with "Share tab audio" on. On Windows, sharing the entire screen with "Share system audio" picks up every app. Safari and Firefox can't share sound this way.
+- **Any app, Mac:** install a free loopback driver such as BlackHole, send the output to it (with a Multi-Output Device in Audio MIDI Setup so you still hear it), and choose BlackHole as the input.
+- **Any app, Windows:** turn on "Stereo Mix" in the Sound control panel, or install VB-Audio Virtual Cable, and choose it as the input.
+
 ## Notes
 
 - Fonts come from Google Fonts (Playfair Display and Outfit) and load only after consent. If they are blocked, the
